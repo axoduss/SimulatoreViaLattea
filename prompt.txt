@@ -1,12 +1,6 @@
-Modifichiamo la dimensione dei piani in funzione del livello di zoom per dare un impatto grafico più bello al simulatore, perché adesso le proporzioni sono giuste ma non ci vede nulla.
+Modifichiamo la dimensione dei pianeti e delle fasce di asteroidi in funzione del livello di zoom per dare un impatto grafico più bello al simulatore, perché adesso le proporzioni sono giuste ma non ci vede nulla.
 Quando lo zoom è molto indietro i pianeti devono essere grandi in modo che si vedano comunque sulle loro orbite.
 mano a mano che aumento lo zoom per avvicinarmi, le dimensioni dei pianeti vengono scalate per garantire coerenza con le dimensioni degli altri corpi
-
-Scrivi solo il codice da modificare specificando esattamente dove fare la modifica, non riscrivere tutto.
-
-c'è un problema di proporzioni. l'orbita della Luna è grande da scavalcare sia marte sia venere.
-controlla tutte le distanze e proporzioni, devono essere realistiche. 
-anche se sono distanti abbiamo lo zoom.
 Scrivi solo il codice da modificare specificando esattamente dove fare la modifica, non riscrivere tutto.
 
 
