@@ -1,0 +1,19 @@
+ Il volume nell'unit… D Š Progetti
+ Numero di serie del volume: 4823-5E64
+
+ Directory di D:\Documenti\Siti Web\Astronomia\Texture\Nano
+
+24/05/2026  16:22    <DIR>          .
+24/05/2026  14:39    <DIR>          ..
+24/05/2026  14:39         1.127.678 2k_ceres_fictional.jpg
+24/05/2026  14:39         1.070.441 2k_eris_fictional.jpg
+24/05/2026  14:39           900.211 2k_haumea_fictional.jpg
+24/05/2026  14:39         1.179.218 2k_makemake_fictional.jpg
+24/05/2026  16:20         1.098.046 2k_pluto.jpg
+24/05/2026  14:39         5.345.847 4k_ceres_fictional.jpg
+24/05/2026  14:39         3.542.916 4k_eris_fictional.jpg
+24/05/2026  14:39         2.731.510 4k_haumea_fictional.jpg
+24/05/2026  14:39         3.631.372 4k_makemake_fictional.jpg
+24/05/2026  16:22                 0 nomi.txt
+              10 File     20.627.239 byte
+               2 Directory  423.758.893.056 byte disponibili

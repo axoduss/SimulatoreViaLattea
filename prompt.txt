@@ -1,0 +1,71 @@
+Modifichiamo la dimensione dei piani in funzione del livello di zoom per dare un impatto grafico più bello al simulatore, perché adesso le proporzioni sono giuste ma non ci vede nulla.
+Quando lo zoom è molto indietro i pianeti devono essere grandi in modo che si vedano comunque sulle loro orbite.
+mano a mano che aumento lo zoom per avvicinarmi, le dimensioni dei pianeti vengono scalate per garantire coerenza con le dimensioni degli altri corpi
+
+Scrivi solo il codice da modificare specificando esattamente dove fare la modifica, non riscrivere tutto.
+
+c'è un problema di proporzioni. l'orbita della Luna è grande da scavalcare sia marte sia venere.
+controlla tutte le distanze e proporzioni, devono essere realistiche. 
+anche se sono distanti abbiamo lo zoom.
+Scrivi solo il codice da modificare specificando esattamente dove fare la modifica, non riscrivere tutto.
+
+
+
+Scrivi solo il codice da modificare specificando esattamente dove fare la modifica, non riscrivere tutto.
+
+
+Le texture da usare per i pianeti nani sono nella cartella Texture/Nano:
+
+2k_ceres_fictional.jpg
+2k_eris_fictional.jpg
+2k_haumea_fictional.jpg
+2k_makemake_fictional.jpg
+2k_pluto.jpg
+
+4k_ceres_fictional.jpg
+4k_eris_fictional.jpg
+4k_haumea_fictional.jpg
+4k_makemake_fictional.jpg
+
+
+usa la versione 2k per la vista da lontano e la versione 4k per la vista da vicino.
+scrivi solo il codice da modificare specificando esattamente dove fare la modifica, non riscrivere tutto.
+
+
+
+Nell'interfaccia aggiungi un campo di ricerca. digitando il nome di un oggetto (es. 'M31' o 'Giove'), la telecamera si sposta automaticamente verso di esso con un'animazione fluida. la camera rimane focalizzata sull'elemento anche durante il movimento continuo dell'elemento lungo l'orbita. posso comunque poi continuare ad usare il mouse per navigare. 
+la grafica dell'interfaccia deve essere in stile sci-fi
+scrivi solo il codice da modificare specificando esattamente dove fare la modifica, non riscrivere tutto.
+
+per la textrure usa Texture\Sun_Moon_Stars\Generic_Celestia_asteroid_texture.jpg
+
+
+
+
+
+voglio usare delle texture (jpg e png) per i pianeti ed il sole. 
+Le texture nella cartella Texture/Planets sono:
+
+2k_earth_daymap.jpg     
+2k_jupiter.jpg          
+2k_mars.jpg             
+2k_mercury.jpg          
+2k_neptune.jpg          
+2k_saturn.jpg           
+2k_saturn_ring_alpha.png
+2k_uranus.jpg           
+2k_venus_surface.jpg    
+8k_earth_daymap.jpg     
+8k_jupiter.jpg          
+8k_mars.jpg             
+8k_mercury.jpg          
+8k_saturn.jpg           
+8k_saturn_ring_alpha.png
+8k_venus_surface.jpg    
+
+Nella cartella Texture/Sun_Moon_Stars sono:
+2k_sun.jpg
+8k_sun.jpg
+
+Usa la versione 2k per la vista da lontano e la versione 8k per la vista da vicino.
+scrivi solo il codice da modificare specificando esattamente dove fare la modifica, non riscrivere tutto.
