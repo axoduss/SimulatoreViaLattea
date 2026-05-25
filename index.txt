@@ -526,8 +526,8 @@
 		const MIN_PIXEL_SIZE = 8;          // dimensione minima in pixel sullo schermo per i pianeti
 		const SUN_MIN_PIXEL_SIZE = 20;     // dimensione minima in pixel per il sole
 		const SAT_MIN_PIXEL_SIZE = 4;      // dimensione minima in pixel per i satelliti
-		const ASTEROID_MIN_SCALE = 1.0;
-		const ASTEROID_MAX_SCALE = 8.0;
+		const ASTEROID_MIN_SCALE = 2.0;
+		const ASTEROID_MAX_SCALE = 25.0;
 		
 		// Calcola il fattore di scala per garantire una dimensione minima in pixel
 		function getDynamicScale(realRadiusScene, distanceToCamera, minPixels) {
@@ -686,10 +686,10 @@
         }
 
         // Fascia principale: 2.2 - 3.2 UA, tra Marte e Giove
-		const mainBelt = createAsteroidBelt(2.2, 3.2, 1200, 0.0001, 0.0005, 0.1 * AU_SCALE);
+		const mainBelt = createAsteroidBelt(2.2, 3.2, 1200, 0.015, 0.06, 0.3 * AU_SCALE);
 
-        // Fascia di Kuiper: 30 - 50 UA, oltre Nettuno
-		const kuiperBelt = createAsteroidBelt(30, 50, 5000, 0.0005, 0.002, 0.5 * AU_SCALE);
+		// Fascia di Kuiper: 30 - 50 UA, oltre Nettuno
+		const kuiperBelt = createAsteroidBelt(30, 50, 5000, 0.03, 0.12, 1.0 * AU_SCALE);
 		
 		
 		// === TEXTURE LOADER ===
@@ -1252,6 +1252,8 @@
 		let cameraStartPos = new THREE.Vector3();
 		let cameraEndOffset = new THREE.Vector3();
 		let userInterrupted = false;
+		let trackingMode = 'observe'; // 'observe' = camera fissa che guarda, 'follow' = camera segue l'oggetto
+		let pendingFollowTransition = false; // true quando stiamo animando verso follow dopo un click
 
 		function getSearchResults(query) {
 			if (!query || query.length === 0) return [];
@@ -1347,22 +1349,33 @@
 					offsetDist * 0.85
 				);
 			} else {
-				// Posiziona la camera nella direzione del Sole rispetto all'oggetto
-				// con un leggero offset verso l'alto per una vista più gradevole
-				const upOffset = new THREE.Vector3(0, 1, 0);
-				// Combina: 80% direzione sole + 20% verso l'alto
-				const cameraDir = dirToSun.clone().multiplyScalar(0.85)
-					.add(upOffset.multiplyScalar(0.25))
+				// Per la modalità OBSERVE: camera perpendicolare all'orbita (sopra e laterale)
+				// così l'oggetto passa davanti in modo cinematografico senza sfrecciare
+				
+				// Direzione tangente all'orbita (perpendicolare al raggio dal sole)
+				const radialDir = targetPos.clone().normalize(); // direzione radiale (dal sole all'oggetto)
+				const tangentDir = new THREE.Vector3(-radialDir.z, 0, radialDir.x).normalize(); // tangente orizzontale
+				const upDir = new THREE.Vector3(0, 1, 0);
+				
+				// Camera posizionata: 40% tangente + 70% sopra + 20% radiale (verso esterno)
+				// Questo dà una visuale laterale-alta, l'oggetto scorre davanti in modo fluido
+				const cameraDir = tangentDir.clone().multiplyScalar(0.4)
+					.add(upDir.clone().multiplyScalar(0.7))
+					.add(radialDir.clone().multiplyScalar(0.2))
 					.normalize();
-
-				cameraEndOffset = cameraDir.multiplyScalar(offsetDist);
+				
+				// Distanza maggiore per observe: 3x l'offset normale, così si vede l'arco orbitale
+				const observeDist = offsetDist * 3.0;
+				cameraEndOffset = cameraDir.multiplyScalar(observeDist);
 			}
 
 			cameraStartPos.copy(camera.position);
 			cameraAnimStart = performance.now();
 			isAnimatingCamera = true;
+			trackingMode = 'observe'; // dalla ricerca: modalità osservazione (camera fissa)
+			pendingFollowTransition = false;
 
-			trackingName.textContent = `TRACKING: ${obj.name.toUpperCase()}`;
+			trackingName.textContent = `OBSERVING: ${obj.name.toUpperCase()}`;
 			trackingIndicator.classList.add('visible');
 			searchSuggestions.classList.remove('visible');
 		}
@@ -1370,6 +1383,8 @@
 		function stopTracking() {
 			trackingTarget = null;
 			isAnimatingCamera = false;
+			trackingMode = 'observe';
+			pendingFollowTransition = false;
 			trackingIndicator.classList.remove('visible');
 			targetHud.classList.remove('visible');
 			controls.minDistance = 0.005; // ripristina default
@@ -1401,29 +1416,42 @@
 					controls.enabled = true;
 					controls.target.copy(targetPos);
 					controls.update();
+
+					// Se stavamo transitando verso follow, attiva la modalità follow
+					if (pendingFollowTransition) {
+						pendingFollowTransition = false;
+						trackingMode = 'follow';
+						trackingName.textContent = `TRACKING: ${trackingTarget.name.toUpperCase()}`;
+
+						let objectRadius = sunRadiusScene;
+						const planetObj = planets.find(p => p.name === trackingTarget.name);
+						const dwarfObj = dwarfPlanets.find(p => p.name === trackingTarget.name);
+						const satObj = satellites.find(s => s.name === trackingTarget.name);
+						if (planetObj) objectRadius = planetObj.realRadius;
+						else if (dwarfObj) objectRadius = dwarfObj.realRadius;
+						else if (satObj) objectRadius = satObj.realRadius;
+
+						controls.minDistance = Math.max(objectRadius * 1.5, 0.0002);
+					}
 				}
-			} else {
+			} else if (trackingMode === 'observe') {
+				// Camera fissa, solo il target (punto di mira) segue l'oggetto
+				controls.target.copy(targetPos);
+			} else if (trackingMode === 'follow') {
+				// Camera si muove con l'oggetto
 				const currentOffset = camera.position.clone().sub(controls.target);
 				controls.target.copy(targetPos);
 				camera.position.copy(targetPos).add(currentOffset);
 
-				const dist = camera.position.distanceTo(targetPos);
 				let objectRadius = sunRadiusScene;
-
 				const planetObj = planets.find(p => p.name === trackingTarget.name);
 				const dwarfObj = dwarfPlanets.find(p => p.name === trackingTarget.name);
 				const satObj = satellites.find(s => s.name === trackingTarget.name);
-
 				if (planetObj) objectRadius = planetObj.realRadius;
 				else if (dwarfObj) objectRadius = dwarfObj.realRadius;
 				else if (satObj) objectRadius = satObj.realRadius;
 
-				// Distanza minima basata sul raggio REALE (non scalato)
-				// Permetti di avvicinarti fino a 1.5x il raggio reale
-				controls.minDistance = objectRadius * 1.5;
-
-				// Minimo assoluto per non avere problemi numerici
-				controls.minDistance = Math.max(controls.minDistance, 0.0002);
+				controls.minDistance = Math.max(objectRadius * 1.5, 0.0002);
 			}
 		}
 
@@ -1545,7 +1573,113 @@
 			targetHud.classList.add('visible');
 		}
 		
-		
+		// === CLICK TO FOLLOW (RAYCASTER) ===
+		const raycaster = new THREE.Raycaster();
+		const mouse = new THREE.Vector2();
+
+		renderer.domElement.addEventListener('click', (event) => {
+			// Ignora se stiamo già animando
+			if (isAnimatingCamera) return;
+
+			mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+			mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+			raycaster.setFromCamera(mouse, camera);
+
+			// Raccogli tutti i mesh cliccabili
+			const clickableMeshes = [sun];
+			planets.forEach(p => clickableMeshes.push(p.mesh));
+			dwarfPlanets.forEach(p => clickableMeshes.push(p.mesh));
+			satellites.forEach(s => clickableMeshes.push(s.mesh));
+
+			const intersects = raycaster.intersectObjects(clickableMeshes, false);
+
+			if (intersects.length > 0) {
+				const clickedMesh = intersects[0].object;
+
+				// Trova quale oggetto è stato cliccato
+				let clickedName = null;
+				let clickedType = null;
+				if (clickedMesh === sun) {
+					clickedName = 'Sole';
+					clickedType = 'star';
+				} else {
+					const p = planets.find(pl => pl.mesh === clickedMesh);
+					if (p) { clickedName = p.name; clickedType = 'planet'; }
+					const d = dwarfPlanets.find(dp => dp.mesh === clickedMesh);
+					if (d) { clickedName = d.name; clickedType = 'dwarf'; }
+					const s = satellites.find(sa => sa.mesh === clickedMesh);
+					if (s) { clickedName = s.name; clickedType = 'satellite'; }
+				}
+
+				if (clickedName) {
+					const obj = searchableObjects.find(o => o.name === clickedName);
+					if (!obj) return;
+
+					// Calcola offset di destinazione (stessa logica di navigateToObject)
+					const targetPos = obj.getPosition();
+					let offsetDist = 0.01;
+
+					if (clickedType === 'star') {
+						offsetDist = sunRadiusScene * 5;
+					} else if (clickedType === 'planet') {
+						const pObj = planets.find(p => p.name === clickedName);
+						if (pObj) {
+							const fovRad = THREE.MathUtils.degToRad(camera.fov);
+							const desiredAngularSize = fovRad * 0.45;
+							offsetDist = pObj.realRadius / Math.tan(desiredAngularSize / 2);
+							offsetDist = Math.max(offsetDist, pObj.realRadius * 3);
+						}
+					} else if (clickedType === 'dwarf') {
+						const dObj = dwarfPlanets.find(p => p.name === clickedName);
+						if (dObj) {
+							const fovRad = THREE.MathUtils.degToRad(camera.fov);
+							const desiredAngularSize = fovRad * 0.45;
+							offsetDist = dObj.realRadius / Math.tan(desiredAngularSize / 2);
+							offsetDist = Math.max(offsetDist, dObj.realRadius * 3);
+						}
+					} else if (clickedType === 'satellite') {
+						const satObj = satellites.find(s => s.name === clickedName);
+						if (satObj) {
+							const fovRad = THREE.MathUtils.degToRad(camera.fov);
+							const desiredAngularSize = fovRad * 0.45;
+							offsetDist = satObj.realRadius / Math.tan(desiredAngularSize / 2);
+							offsetDist = Math.max(offsetDist, satObj.realRadius * 3);
+						}
+					}
+
+					offsetDist = Math.max(offsetDist, 0.00003);
+
+					// Direzione camera: dal sole verso l'oggetto + leggero offset alto
+					const sunPos = new THREE.Vector3(0, 0, 0);
+					if (clickedType === 'star') {
+						cameraEndOffset = new THREE.Vector3(
+							offsetDist * 0.3, offsetDist * 0.4, offsetDist * 0.85
+						);
+					} else {
+						const dirToSun = sunPos.clone().sub(targetPos).normalize();
+						const upOffset = new THREE.Vector3(0, 1, 0);
+						const cameraDir = dirToSun.clone().multiplyScalar(0.85)
+							.add(upOffset.multiplyScalar(0.25))
+							.normalize();
+						cameraEndOffset = cameraDir.multiplyScalar(offsetDist);
+					}
+
+					// Imposta tracking e avvia animazione verso follow
+					trackingTarget = obj;
+					userInterrupted = false;
+					pendingFollowTransition = true;
+					cameraStartPos.copy(camera.position);
+					cameraAnimStart = performance.now();
+					isAnimatingCamera = true;
+
+					controls.minDistance = Math.max(offsetDist * 0.1, 0.0001);
+
+					trackingName.textContent = `ZOOM → ${clickedName.toUpperCase()}`;
+					trackingIndicator.classList.add('visible');
+				}
+			}
+		});
 		
 		
 		
@@ -1772,12 +1906,12 @@
 			// Asteroid belts
 			const camDistAU = camera.position.length() / AU_SCALE;
 			const asteroidScale = THREE.MathUtils.clamp(
-				THREE.MathUtils.mapLinear(camDistAU, 0.5, 30, ASTEROID_MIN_SCALE, ASTEROID_MAX_SCALE),
+				THREE.MathUtils.mapLinear(camDistAU, 0.5, 60, ASTEROID_MIN_SCALE, ASTEROID_MAX_SCALE),
 				ASTEROID_MIN_SCALE,
 				ASTEROID_MAX_SCALE
 			);
 			mainBelt.children.forEach(child => { child.scale.setScalar(asteroidScale); });
-			kuiperBelt.children.forEach(child => { child.scale.setScalar(asteroidScale * 0.6); });
+			kuiperBelt.children.forEach(child => { child.scale.setScalar(asteroidScale * 0.8); });
 			
 			
             composer.render();
