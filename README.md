@@ -40,50 +40,6 @@ An interactive, real-time 3D simulation of our Solar System built entirely with 
 
 ---
 
-## 📁 Project Structure
-
-```
-solar-system-3d/
-├── index.html              # Main application (single-file, self-contained)
-├── README.md               # This file
-└── Texture/
-    ├── Planets/
-    │   ├── 2k_mercury.jpg
-    │   ├── 8k_mercury.jpg
-    │   ├── 2k_venus_surface.jpg
-    │   ├── 8k_venus_surface.jpg
-    │   ├── 2k_earth_daymap.jpg
-    │   ├── 8k_earth_daymap.jpg
-    │   ├── 2k_mars.jpg
-    │   ├── 8k_mars.jpg
-    │   ├── 2k_jupiter.jpg
-    │   ├── 8k_jupiter.jpg
-    │   ├── 2k_saturn.jpg
-    │   ├── 8k_saturn.jpg
-    │   ├── 2k_saturn_ring_alpha.png
-    │   ├── 8k_saturn_ring_alpha.png
-    │   ├── 2k_uranus.jpg
-    │   └── 2k_neptune.jpg
-    ├── Nano/
-    │   ├── 2k_ceres_fictional.jpg
-    │   ├── 4k_ceres_fictional.jpg
-    │   ├── 2k_pluto.jpg
-    │   ├── 2k_eris_fictional.jpg
-    │   ├── 4k_eris_fictional.jpg
-    │   ├── 2k_haumea_fictional.jpg
-    │   ├── 4k_haumea_fictional.jpg
-    │   ├── 2k_makemake_fictional.jpg
-    │   └── 4k_makemake_fictional.jpg
-    └── Sun_Moon_Stars/
-        ├── 2k_sun.jpg
-        ├── 8k_sun.jpg
-        ├── 2k_moon.jpg
-        ├── 8k_moon.jpg
-        └── Generic_Celestia_asteroid_texture.jpg
-```
-
----
-
 ## 🛠️ Installation & Usage
 
 ### Prerequisites
