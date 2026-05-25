@@ -1336,12 +1336,27 @@
 			offsetDist = Math.max(offsetDist, 0.00003);
 			controls.minDistance = Math.max(offsetDist * 0.1, 0.0001);
 
-			// Offset più diretto: camera quasi frontale, leggermente sopra
-			cameraEndOffset = new THREE.Vector3(
-				offsetDist * 0.3,
-				offsetDist * 0.25,
-				offsetDist * 0.9
-			);
+			const sunPos = new THREE.Vector3(0, 0, 0);
+			const dirToSun = sunPos.clone().sub(targetPos).normalize();
+
+			// Se l'oggetto È il Sole, usa un offset arbitrario
+			if (obj.type === 'star') {
+				cameraEndOffset = new THREE.Vector3(
+					offsetDist * 0.3,
+					offsetDist * 0.4,
+					offsetDist * 0.85
+				);
+			} else {
+				// Posiziona la camera nella direzione del Sole rispetto all'oggetto
+				// con un leggero offset verso l'alto per una vista più gradevole
+				const upOffset = new THREE.Vector3(0, 1, 0);
+				// Combina: 80% direzione sole + 20% verso l'alto
+				const cameraDir = dirToSun.clone().multiplyScalar(0.85)
+					.add(upOffset.multiplyScalar(0.25))
+					.normalize();
+
+				cameraEndOffset = cameraDir.multiplyScalar(offsetDist);
+			}
 
 			cameraStartPos.copy(camera.position);
 			cameraAnimStart = performance.now();
