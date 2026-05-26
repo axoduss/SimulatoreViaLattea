@@ -833,6 +833,17 @@
 		
 		// === TEXTURE LOADER ===
 		const textureLoader = new THREE.TextureLoader();
+		const originalLoad = textureLoader.load.bind(textureLoader);
+		textureLoader.load = function(url, onLoad, onProgress, onError) {
+			return originalLoad(
+				url,
+				onLoad,
+				onProgress,
+				onError || ((err) => {
+					console.warn(`[Texture] Impossibile caricare: ${url}`, err);
+				})
+			);
+		};
 
 		// Preload textures (2k default, 8k for close-up)
 		const textures = {
@@ -1015,6 +1026,7 @@
 				metalness: 0.1
 			});
             const mesh = new THREE.Mesh(geo, mat);
+			mesh.userData.currentLOD = 'low';
             scene.add(mesh);
 
 			// Saturn rings
@@ -1359,6 +1371,18 @@
 			speedMultiplier = speeds[speedIdx];
 			speedControl.innerHTML = '<span>' + speeds[speedIdx] + '</span>x';
 		});
+		
+		const timelineTrack = document.getElementById('timeline-track');
+		const timelineFill = document.getElementById('timeline-fill');
+
+		timelineTrack.addEventListener('click', (e) => {
+			const rect = timelineTrack.getBoundingClientRect();
+			const ratio = (e.clientX - rect.left) / rect.width;
+			// Permette di saltare avanti/indietro nel tempo simulato
+			// Mappiamo 0-100% su 0-365 giorni (un anno)
+			simulatedDays = ratio * 365.25 * speedMultiplier;
+		});
+		
 
         // === RESIZE ===
         window.addEventListener('resize', () => {
@@ -1407,6 +1431,19 @@
 			{ name: 'M45 - Pleiadi', aliases: ['m45', 'pleiadi', 'pleiades'], icon: '✨', type: 'deepsky', getPosition: () => new THREE.Vector3(200, 80, 300) },
 		];
 		searchableObjects.push(...deepSkyObjects);
+		
+		deepSkyObjects.forEach(dso => {
+		const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+			color: 0xaaccff,
+			transparent: true,
+			opacity: 0.4,
+			blending: THREE.AdditiveBlending
+		}));
+		const pos = dso.getPosition();
+		sprite.position.copy(pos);
+		sprite.scale.set(5, 5, 1);
+		scene.add(sprite);
+	});
 		
 		// Add satellites to searchable objects
 		satellites.forEach(sat => {
@@ -1732,12 +1769,30 @@
 			}
 		});
 		stopTrackingBtn.addEventListener('click', stopTracking);
+		
+		document.querySelectorAll('.legend-item').forEach(item => {
+			item.addEventListener('click', () => {
+				const planetName = item.textContent.trim();
+				const obj = searchableObjects.find(o => o.name === planetName);
+				if (obj) {
+					searchInput.value = planetName;
+					navigateToObject(planetName);
+				}
+			});
+		});
 
 
 		// Click outside to close suggestions
 		document.addEventListener('click', (e) => {
 			if (!e.target.closest('#search-container')) {
 				searchSuggestions.classList.remove('visible');
+			}
+		});
+		
+		document.addEventListener('keydown', (e) => {
+			if (e.key === '/' && document.activeElement !== searchInput) {
+				e.preventDefault();
+				searchInput.focus();
 			}
 		});
 		
@@ -1815,7 +1870,20 @@
 			const intersects = raycaster.intersectObjects(clickableMeshes, false);
 
 			if (intersects.length > 0) {
-				const clickedMesh = intersects[0].object;
+				// Filtra: accetta solo se il punto di intersezione è vicino al centro visivo
+				// (evita click accidentali su oggetti con scala enorme)
+				const hit = intersects[0];
+				const hitScreenPos = hit.object.position.clone().project(camera);
+				const clickScreenX = (event.clientX / window.innerWidth) * 2 - 1;
+				const clickScreenY = -(event.clientY / window.innerHeight) * 2 + 1;
+				const screenDist = Math.sqrt(
+					Math.pow(hitScreenPos.x - clickScreenX, 2) +
+					Math.pow(hitScreenPos.y - clickScreenY, 2)
+				);
+				// Se il centro dell'oggetto è troppo lontano dal click sullo schermo, ignora
+				if (screenDist > 0.15) return;
+
+				const clickedMesh = hit.object;
 
 				// Trova quale oggetto è stato cliccato
 				let clickedName = null;
@@ -1927,9 +1995,9 @@
                     const cosI = Math.cos(planet.inclination);
                     const sinI = Math.sin(planet.inclination);
 
-                    planet.mesh.position.x = x;
-                    planet.mesh.position.y = -z * Math.sin(planet.inclination);
-					planet.mesh.position.z = z * Math.cos(planet.inclination);
+					planet.mesh.position.x = x;
+					planet.mesh.position.y = z * sinI;
+					planet.mesh.position.z = z * cosI;
                 });
 				
 				// Update dwarf planet positions
@@ -1993,7 +2061,9 @@
 				const dayOfYear = Math.floor((simDate - new Date(simDate.getFullYear(), 0, 0)) / 86400000);
 				dateSub.textContent = `Giorno ${dayOfYear} · ${speedMultiplier}x`;
 			}
-
+			// Aggiorna timeline fill (ciclo annuale)
+			const yearProgress = (simulatedDays % 365.25) / 365.25;
+			document.getElementById('timeline-fill').style.width = (yearProgress * 100) + '%';
             
 			
 			// Camera tracking update
@@ -2105,7 +2175,14 @@
 			const sunDistToCam = camera.position.distanceTo(sun.position);
 			const sunScale = getDynamicScale(sunRadiusScene, sunDistToCam, SUN_MIN_PIXEL_SIZE);
 			sun.scale.setScalar(sunScale);
-			glowSprite.scale.set(sunRadiusScene * 6 / sunScale, sunRadiusScene * 6 / sunScale, 1);
+			const glowWorldSize = sunRadiusScene * 6;
+			const glowLocalSize = glowWorldSize / sunScale;
+			const maxGlowLocal = sunRadiusScene * 30; // cap per evitare glow enorme
+			glowSprite.scale.set(
+				Math.min(glowLocalSize, maxGlowLocal),
+				Math.min(glowLocalSize, maxGlowLocal),
+				1
+			);
 
 			// Planets
 			planets.forEach(planet => {

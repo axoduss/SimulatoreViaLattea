@@ -1654,7 +1654,7 @@
 					.normalize();
 				
 				// Distanza maggiore per observe: 3x l'offset normale, così si vede l'arco orbitale
-				const observeDist = offsetDist * 3.0;
+				const observeDist = offsetDist * 3;
 				cameraEndOffset = cameraDir.multiplyScalar(observeDist);
 			}
 
@@ -1671,14 +1671,32 @@
 		}
 
 		function stopTracking() {
+			if (!trackingTarget) {
+				trackingIndicator.classList.remove('visible');
+				targetHud.classList.remove('visible');
+				document.getElementById('info-panel').classList.remove('visible');
+				return;
+			}
+
 			trackingTarget = null;
-			isAnimatingCamera = false;
 			trackingMode = 'observe';
 			pendingFollowTransition = false;
+			isAnimatingCamera = false;
 			trackingIndicator.classList.remove('visible');
 			targetHud.classList.remove('visible');
-			controls.minDistance = 0.005; // ripristina default
 			document.getElementById('info-panel').classList.remove('visible');
+
+			// Avvia animazione overview separata
+			window._overviewAnim = {
+				startPos: camera.position.clone(),
+				startTarget: controls.target.clone(),
+				endPos: new THREE.Vector3(0, 18, 22),
+				endTarget: new THREE.Vector3(0, 0, 0),
+				startTime: performance.now(),
+				duration: 2000
+			};
+			controls.enabled = false;
+			controls.minDistance = 0.005;
 		}
 
 		// Easing function (smooth)
@@ -1725,15 +1743,12 @@
 						controls.minDistance = Math.max(objectRadius * 1.5, 0.0002);
 					}
 				}
+			
 			} else if (trackingMode === 'observe') {
 				// Camera fissa, solo il target (punto di mira) segue l'oggetto
 				controls.target.copy(targetPos);
 			} else if (trackingMode === 'follow') {
 				// Camera si muove con l'oggetto
-				const currentOffset = camera.position.clone().sub(controls.target);
-				controls.target.copy(targetPos);
-				camera.position.copy(targetPos).add(currentOffset);
-
 				let objectRadius = sunRadiusScene;
 				const planetObj = planets.find(p => p.name === trackingTarget.name);
 				const dwarfObj = dwarfPlanets.find(p => p.name === trackingTarget.name);
@@ -1742,8 +1757,23 @@
 				else if (dwarfObj) objectRadius = dwarfObj.realRadius;
 				else if (satObj) objectRadius = satObj.realRadius;
 
+				const currentOffset = camera.position.clone().sub(controls.target);
+				const currentDist = currentOffset.length();
+
+				// Distanza ideale: oggetto ben visibile
+				const idealDist = objectRadius * 4;
+
+				// Se troppo lontana, avvicina gradualmente
+				if (currentDist > idealDist) {
+					const newDist = currentDist + (idealDist - currentDist) * 0.03;
+					currentOffset.normalize().multiplyScalar(newDist);
+				}
+
+				controls.target.copy(targetPos);
+				camera.position.copy(targetPos).add(currentOffset);
+
 				controls.minDistance = Math.max(objectRadius * 1.5, 0.0002);
-			}
+			}	
 		}
 
 		// Event listeners
@@ -1945,10 +1975,12 @@
 							offsetDist * 0.3, offsetDist * 0.4, offsetDist * 0.85
 						);
 					} else {
-						const dirToSun = sunPos.clone().sub(targetPos).normalize();
-						const upOffset = new THREE.Vector3(0, 1, 0);
-						const cameraDir = dirToSun.clone().multiplyScalar(0.85)
-							.add(upOffset.multiplyScalar(0.25))
+						const radialDir = targetPos.clone().normalize();
+						const tangentDir = new THREE.Vector3(-radialDir.z, 0, radialDir.x).normalize();
+						const upDir = new THREE.Vector3(0, 1, 0);
+						const cameraDir = tangentDir.clone().multiplyScalar(0.35)
+							.add(upDir.clone().multiplyScalar(0.5))
+							.add(radialDir.clone().multiplyScalar(0.25))
 							.normalize();
 						cameraEndOffset = cameraDir.multiplyScalar(offsetDist);
 					}
@@ -2065,6 +2097,28 @@
 			const yearProgress = (simulatedDays % 365.25) / 365.25;
 			document.getElementById('timeline-fill').style.width = (yearProgress * 100) + '%';
             
+			
+			// Animazione ritorno a overview
+			if (window._overviewAnim) {
+				const anim = window._overviewAnim;
+				const elapsed = performance.now() - anim.startTime;
+				const progress = Math.min(elapsed / anim.duration, 1);
+				const eased = easeInOutCubic(progress);
+
+				camera.position.lerpVectors(anim.startPos, anim.endPos, eased);
+				controls.target.lerpVectors(anim.startTarget, anim.endTarget, eased);
+
+				if (progress >= 1) {
+					camera.position.copy(anim.endPos);
+					controls.target.copy(anim.endTarget);
+					controls.enabled = true;
+					controls.update();
+					window._overviewAnim = null;
+				}
+			}
+			
+			
+			
 			
 			// Camera tracking update
             updateCameraTracking();	
