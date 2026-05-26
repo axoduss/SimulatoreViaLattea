@@ -4,18 +4,34 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Simulatore Sistema Solare 3D</title>
+	<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;600;800&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
-        }
-        body {
-            overflow: hidden;
-            background: #000;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            color: #fff;
-        }
+        }		
+		:root {
+			--bg: #030810;
+			--text-primary: #e8edf5;
+			--text-secondary: #5a6a7a;
+			--text-dim: #2a3545;
+			--accent: #7dd3fc;
+			--accent-bright: #a5e4ff;
+			--accent-dim: rgba(125, 211, 252, 0.08);
+			--accent-glow: rgba(125, 211, 252, 0.15);
+			--border: rgba(125, 211, 252, 0.08);
+			--border-hover: rgba(125, 211, 252, 0.2);
+			--glass: rgba(8, 16, 32, 0.65);
+			--glass-solid: rgba(10, 20, 40, 0.85);
+		}
+		
+		body {
+			overflow: hidden;
+			background: var(--bg);
+			font-family: 'Inter', -apple-system, sans-serif;
+			color: var(--text-primary);
+		}
         #canvas-container {
             width: 100vw;
             height: 100vh;
@@ -23,277 +39,367 @@
             top: 0;
             left: 0;
         }
-        #controls {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(10, 10, 30, 0.85);
-            border: 1px solid rgba(100, 150, 255, 0.3);
-            border-radius: 12px;
-            padding: 15px 25px;
-            display: flex;
-            align-items: center;
-            gap: 20px;
-            backdrop-filter: blur(10px);
-            z-index: 100;
-        }
-        #controls button {
-            background: rgba(60, 120, 255, 0.2);
-            border: 1px solid rgba(100, 150, 255, 0.5);
-            color: #fff;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: all 0.2s;
-        }
-        #controls button:hover {
-            background: rgba(60, 120, 255, 0.4);
-        }
-        #controls button.active {
-            background: rgba(60, 120, 255, 0.6);
-            border-color: #88aaff;
-        }
-        #controls label {
-            font-size: 13px;
-            color: #aac;
-        }
-        #controls input[type="range"] {
-            width: 120px;
-            accent-color: #4488ff;
-        }
-        #speed-value {
-            font-size: 13px;
-            color: #8af;
-            min-width: 45px;
-        }
-        #info-panel {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: rgba(10, 10, 30, 0.85);
-            border: 1px solid rgba(100, 150, 255, 0.3);
-            border-radius: 12px;
-            padding: 15px 20px;
-            backdrop-filter: blur(10px);
-            z-index: 100;
-            font-size: 13px;
-            line-height: 1.8;
-        }
-        #info-panel .title {
-            font-size: 15px;
-            font-weight: bold;
-            color: #8af;
-            margin-bottom: 8px;
-        }
-        #info-panel .scale {
-            color: #aac;
-        }
-        #planet-label {
-            position: fixed;
-            top: 20px;
-            left: 20px;
-            background: rgba(10, 10, 30, 0.85);
-            border: 1px solid rgba(100, 150, 255, 0.3);
-            border-radius: 12px;
-            padding: 15px 20px;
-            backdrop-filter: blur(10px);
-            z-index: 100;
-            font-size: 12px;
-            line-height: 1.8;
-            max-width: 220px;
-        }
-        #planet-label .panel-title {
-            font-size: 14px;
-            font-weight: bold;
-            color: #8af;
-            margin-bottom: 5px;
-        }
-        .legend-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .legend-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            flex-shrink: 0;
-        }
-		
-		/* Search Bar - Sci-Fi Style */
+        /* === SEARCH BAR — Glass Pill === */
 		#search-container {
 			position: fixed;
-			top: 20px;
+			top: 28px;
 			left: 50%;
 			transform: translateX(-50%);
 			z-index: 200;
+		}
+
+		.search-box {
 			display: flex;
 			align-items: center;
-			gap: 0;
+			gap: 10px;
+			background: var(--glass);
+			backdrop-filter: blur(20px);
+			-webkit-backdrop-filter: blur(20px);
+			border: 1px solid var(--border);
+			border-radius: 24px;
+			padding: 10px 20px;
+			transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+			min-width: 300px;
+		}
+
+		.search-box:hover,
+		.search-box:focus-within {
+			border-color: var(--border-hover);
+			background: var(--glass-solid);
+			box-shadow: 0 0 30px rgba(125, 211, 252, 0.05), inset 0 0 30px rgba(125, 211, 252, 0.02);
+		}
+
+		.search-icon {
+			width: 16px;
+			height: 16px;
+			opacity: 0.4;
+			flex-shrink: 0;
+			transition: opacity 0.3s;
+		}
+
+		.search-box:focus-within .search-icon {
+			opacity: 0.8;
 		}
 
 		#search-input {
-			width: 280px;
-			padding: 10px 18px;
-			background: rgba(5, 10, 30, 0.9);
-			border: 1px solid rgba(0, 180, 255, 0.4);
-			border-right: none;
-			border-radius: 8px 0 0 8px;
-			color: #00e5ff;
-			font-family: 'Courier New', monospace;
-			font-size: 14px;
-			letter-spacing: 1px;
+			background: transparent;
+			border: none;
+			color: var(--text-primary);
+			font-family: 'Inter', sans-serif;
+			font-size: 13px;
+			font-weight: 300;
+			width: 100%;
 			outline: none;
-			backdrop-filter: blur(12px);
-			transition: all 0.3s;
-			box-shadow: 0 0 15px rgba(0, 150, 255, 0.1) inset, 0 0 8px rgba(0, 150, 255, 0.05);
+			letter-spacing: 0.3px;
 		}
 
 		#search-input::placeholder {
-			color: rgba(0, 180, 255, 0.4);
-			font-style: italic;
+			color: var(--text-dim);
+			font-weight: 300;
 		}
 
-		#search-input:focus {
-			border-color: rgba(0, 220, 255, 0.8);
-			box-shadow: 0 0 20px rgba(0, 180, 255, 0.3) inset, 0 0 15px rgba(0, 180, 255, 0.15);
-			background: rgba(5, 10, 40, 0.95);
-		}
-
-		#search-btn {
-			padding: 10px 16px;
-			background: rgba(0, 120, 255, 0.3);
-			border: 1px solid rgba(0, 180, 255, 0.4);
-			border-radius: 0 8px 8px 0;
-			color: #00e5ff;
-			font-size: 16px;
-			cursor: pointer;
-			backdrop-filter: blur(12px);
-			transition: all 0.3s;
-		}
-
-		#search-btn:hover {
-			background: rgba(0, 150, 255, 0.5);
-			box-shadow: 0 0 20px rgba(0, 180, 255, 0.3);
+		.search-shortcut {
+			font-size: 10px;
+			color: var(--text-dim);
+			border: 1px solid var(--border);
+			padding: 2px 7px;
+			border-radius: 4px;
+			font-weight: 400;
+			flex-shrink: 0;
 		}
 
 		#search-suggestions {
 			position: absolute;
-			top: 100%;
+			top: calc(100% + 6px);
 			left: 0;
-			width: 280px;
-			margin-top: 4px;
-			background: rgba(5, 10, 30, 0.95);
-			border: 1px solid rgba(0, 180, 255, 0.3);
-			border-radius: 8px;
+			right: 0;
+			background: var(--glass-solid);
+			backdrop-filter: blur(20px);
+			border: 1px solid var(--border);
+			border-radius: 12px;
 			overflow: hidden;
 			display: none;
-			backdrop-filter: blur(12px);
-			box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+			box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
 		}
 
-		#search-suggestions.visible {
-			display: block;
-		}
+		#search-suggestions.visible { display: block; }
 
 		.suggestion-item {
-			padding: 9px 18px;
-			color: #88ddff;
-			font-family: 'Courier New', monospace;
-			font-size: 13px;
+			padding: 10px 18px;
+			color: var(--text-secondary);
+			font-family: 'Inter', sans-serif;
+			font-size: 12px;
+			font-weight: 300;
 			cursor: pointer;
 			transition: all 0.15s;
-			border-bottom: 1px solid rgba(0, 100, 200, 0.1);
+			border-bottom: 1px solid var(--border);
 			display: flex;
 			align-items: center;
 			gap: 10px;
 		}
 
-		.suggestion-item:last-child {
-			border-bottom: none;
-		}
+		.suggestion-item:last-child { border-bottom: none; }
 
 		.suggestion-item:hover {
-			background: rgba(0, 120, 255, 0.2);
-			color: #00ffff;
-			padding-left: 22px;
-		}
-
-		.suggestion-item .sg-icon {
-			font-size: 14px;
+			background: var(--accent-dim);
+			color: var(--text-primary);
 		}
 
 		#search-status {
 			position: absolute;
-			top: 100%;
+			top: calc(100% + 6px);
 			right: 0;
-			margin-top: 4px;
 			padding: 6px 12px;
-			background: rgba(5, 10, 30, 0.9);
-			border: 1px solid rgba(255, 80, 80, 0.5);
-			border-radius: 6px;
+			background: var(--glass-solid);
+			border: 1px solid rgba(255, 80, 80, 0.3);
+			border-radius: 8px;
 			color: #ff6666;
-			font-family: 'Courier New', monospace;
 			font-size: 11px;
 			display: none;
-			backdrop-filter: blur(10px);
 		}
 
-		#search-status.visible {
-			display: block;
-		}
+		#search-status.visible { display: block; }
 
-		#tracking-indicator {
+		/* === TIMELINE CONTROLS === */
+		#controls {
 			position: fixed;
-			top: 70px;
+			bottom: 36px;
 			left: 50%;
 			transform: translateX(-50%);
-			padding: 6px 16px;
-			background: rgba(0, 40, 80, 0.85);
-			border: 1px solid rgba(0, 200, 255, 0.4);
-			border-radius: 20px;
-			color: #00e5ff;
-			font-family: 'Courier New', monospace;
-			font-size: 12px;
-			letter-spacing: 1px;
-			display: none;
-			z-index: 200;
-			backdrop-filter: blur(10px);
-			box-shadow: 0 0 15px rgba(0, 150, 255, 0.15);
-			animation: pulse-border 2s infinite;
+			display: flex;
+			align-items: center;
+			gap: 16px;
+			background: var(--glass);
+			backdrop-filter: blur(20px);
+			-webkit-backdrop-filter: blur(20px);
+			border: 1px solid var(--border);
+			border-radius: 24px;
+			padding: 10px 24px;
+			z-index: 100;
+			opacity: 0;
+			transition: opacity 0.4s;
 		}
 
-		#tracking-indicator.visible {
+		body:hover #controls,
+		body.controls-visible #controls {
+			opacity: 1;
+		}
+
+		.play-btn {
+			width: 32px;
+			height: 32px;
+			border-radius: 50%;
+			border: 1px solid var(--border);
+			background: transparent;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			cursor: pointer;
+			transition: all 0.25s;
+			flex-shrink: 0;
+			color: var(--text-primary);
+		}
+
+		.play-btn:hover {
+			border-color: var(--accent);
+			background: var(--accent-dim);
+			box-shadow: 0 0 15px rgba(125, 211, 252, 0.1);
+		}
+
+		.play-btn svg {
+			width: 11px;
+			height: 11px;
+			fill: currentColor;
+		}
+
+		.timeline-track {
+			width: 240px;
+			height: 3px;
+			background: rgba(255, 255, 255, 0.06);
+			border-radius: 2px;
+			position: relative;
+			cursor: pointer;
+			transition: height 0.2s;
+		}
+
+		.timeline-track:hover { height: 5px; }
+
+		.timeline-fill {
+			height: 100%;
+			width: 0%;
+			background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+			border-radius: 2px;
+			transition: width 0.3s;
+		}
+
+		.speed-control {
+			font-size: 11px;
+			font-weight: 300;
+			color: var(--text-secondary);
+			cursor: pointer;
+			padding: 4px 8px;
+			border-radius: 4px;
+			transition: all 0.2s;
+			flex-shrink: 0;
+			min-width: 35px;
+			text-align: center;
+		}
+
+		.speed-control:hover {
+			color: var(--text-primary);
+			background: var(--accent-dim);
+		}
+
+		.speed-control span { color: var(--accent); font-weight: 500; }
+
+		/* === INFO CARD (contextual, on tracking) === */
+		#info-panel {
+			position: fixed;
+			bottom: 100px;
+			left: 40px;
+			z-index: 100;
+			opacity: 0;
+			transform: translateY(12px);
+			transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+			pointer-events: none;
+		}
+
+		#info-panel.visible {
+			opacity: 1;
+			transform: translateY(0);
+			pointer-events: auto;
+		}
+
+		.info-card-inner {
+			background: var(--glass);
+			backdrop-filter: blur(24px);
+			-webkit-backdrop-filter: blur(24px);
+			border: 1px solid var(--border);
+			border-radius: 12px;
+			padding: 24px;
+			min-width: 220px;
+			box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(125, 211, 252, 0.05);
+		}
+
+		.info-card-header {
 			display: flex;
 			align-items: center;
 			gap: 10px;
+			margin-bottom: 4px;
+		}
+
+		.info-card-dot {
+			width: 8px;
+			height: 8px;
+			border-radius: 50%;
+			background: var(--accent);
+			box-shadow: 0 0 8px rgba(125, 211, 252, 0.5);
+		}
+
+		.info-card-name {
+			font-size: 18px;
+			font-weight: 600;
+			letter-spacing: -0.3px;
+		}
+
+		.info-card-type {
+			font-size: 10px;
+			font-weight: 300;
+			color: var(--text-secondary);
+			text-transform: uppercase;
+			letter-spacing: 1.5px;
+			margin-left: 18px;
+			margin-bottom: 16px;
+		}
+
+		.info-card-divider {
+			height: 1px;
+			background: linear-gradient(90deg, var(--border), transparent);
+			margin-bottom: 14px;
+		}
+
+		.info-data-row {
+			display: flex;
+			justify-content: space-between;
+			align-items: baseline;
+			margin-bottom: 10px;
+		}
+
+		.info-data-label {
+			font-size: 11px;
+			color: var(--text-secondary);
+			font-weight: 300;
+		}
+
+		.info-data-value {
+			font-size: 13px;
+			font-weight: 400;
+			font-variant-numeric: tabular-nums;
+		}
+
+		.info-data-unit {
+			font-size: 10px;
+			color: var(--text-secondary);
+			margin-left: 3px;
+		}
+
+		/* === TRACKING PILL === */
+		#tracking-indicator {
+			position: fixed;
+			top: 28px;
+			left: 40px;
+			display: flex;
+			align-items: center;
+			gap: 10px;
+			background: var(--glass);
+			backdrop-filter: blur(16px);
+			border: 1px solid var(--border);
+			border-radius: 20px;
+			padding: 8px 16px;
+			z-index: 200;
+			opacity: 0;
+			transform: translateY(-5px);
+			transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+		}
+
+		#tracking-indicator.visible {
+			opacity: 1;
+			transform: translateY(0);
+		}
+
+		.tracking-dot {
+			width: 6px;
+			height: 6px;
+			border-radius: 50%;
+			background: var(--accent);
+			box-shadow: 0 0 6px rgba(125, 211, 252, 0.6);
+			animation: dot-pulse 1.8s ease-in-out infinite;
+		}
+
+		@keyframes dot-pulse {
+			0%, 100% { opacity: 1; }
+			50% { opacity: 0.3; }
 		}
 
 		#tracking-indicator .stop-btn {
-			background: rgba(255, 60, 60, 0.3);
-			border: 1px solid rgba(255, 100, 100, 0.5);
-			color: #ff8888;
-			padding: 2px 8px;
-			border-radius: 4px;
+			opacity: 0;
+			background: none;
+			border: none;
+			color: var(--text-secondary);
+			font-size: 15px;
 			cursor: pointer;
-			font-size: 11px;
-			font-family: 'Courier New', monospace;
+			padding: 2px 6px;
+			border-radius: 50%;
 			transition: all 0.2s;
 		}
 
+		#tracking-indicator:hover .stop-btn { opacity: 1; }
 		#tracking-indicator .stop-btn:hover {
-			background: rgba(255, 60, 60, 0.5);
-			color: #ffaaaa;
+			color: var(--accent);
+			background: var(--accent-dim);
 		}
 
-		@keyframes pulse-border {
-			0%, 100% { border-color: rgba(0, 200, 255, 0.4); }
-			50% { border-color: rgba(0, 200, 255, 0.8); }
-		}
-		
-		/* Target HUD Overlay - Sci-Fi */
+		/* === TARGET HUD — Minimal Circle === */
 		#target-hud {
 			position: fixed;
 			pointer-events: none;
@@ -301,125 +407,128 @@
 			display: none;
 		}
 
-		#target-hud.visible {
-			display: block;
-		}
+		#target-hud.visible { display: block; }
 
-		#target-hud .hud-bracket {
-			position: absolute;
-			width: 80px;
-			height: 80px;
-		}
-
-		#target-hud .hud-bracket.tl {
-			top: 0; left: 0;
-			border-top: 2px solid rgba(0, 230, 255, 0.8);
-			border-left: 2px solid rgba(0, 230, 255, 0.8);
-			box-shadow: -2px -2px 8px rgba(0, 200, 255, 0.3), inset 2px 2px 8px rgba(0, 200, 255, 0.05);
-		}
-
-		#target-hud .hud-bracket.tr {
-			top: 0; right: 0;
-			border-top: 2px solid rgba(0, 230, 255, 0.8);
-			border-right: 2px solid rgba(0, 230, 255, 0.8);
-			box-shadow: 2px -2px 8px rgba(0, 200, 255, 0.3), inset -2px 2px 8px rgba(0, 200, 255, 0.05);
-		}
-
-		#target-hud .hud-bracket.bl {
-			bottom: 0; left: 0;
-			border-bottom: 2px solid rgba(0, 230, 255, 0.8);
-			border-left: 2px solid rgba(0, 230, 255, 0.8);
-			box-shadow: -2px 2px 8px rgba(0, 200, 255, 0.3), inset 2px -2px 8px rgba(0, 200, 255, 0.05);
-		}
-
-		#target-hud .hud-bracket.br {
-			bottom: 0; right: 0;
-			border-bottom: 2px solid rgba(0, 230, 255, 0.8);
-			border-right: 2px solid rgba(0, 230, 255, 0.8);
-			box-shadow: 2px 2px 8px rgba(0, 200, 255, 0.3), inset -2px -2px 8px rgba(0, 200, 255, 0.05);
-		}
-
-		#target-hud .hud-label {
-			position: absolute;
-			bottom: -32px;
-			left: 50%;
-			transform: translateX(-50%);
-			background: rgba(0, 20, 50, 0.85);
-			border: 1px solid rgba(0, 200, 255, 0.5);
-			border-radius: 4px;
-			padding: 3px 12px;
-			color: #00e5ff;
-			font-family: 'Courier New', monospace;
-			font-size: 11px;
-			letter-spacing: 2px;
-			text-transform: uppercase;
-			white-space: nowrap;
-			box-shadow: 0 0 12px rgba(0, 180, 255, 0.2);
-			animation: hud-label-pulse 2.5s infinite;
-		}
-
-		#target-hud .hud-label::before {
-			content: '◆';
-			margin-right: 6px;
-			font-size: 8px;
-			color: rgba(0, 255, 200, 0.8);
-		}
-
-		#target-hud .hud-distance {
-			position: absolute;
-			top: -24px;
-			left: 50%;
-			transform: translateX(-50%);
-			color: rgba(0, 200, 255, 0.6);
-			font-family: 'Courier New', monospace;
-			font-size: 9px;
-			letter-spacing: 1px;
-			white-space: nowrap;
-		}
-
-		#target-hud .hud-crosshair {
+		.hud-ring {
 			position: absolute;
 			top: 50%;
 			left: 50%;
 			transform: translate(-50%, -50%);
+			width: 60px;
+			height: 60px;
+			border-radius: 50%;
+			border: 1px solid var(--accent);
+			opacity: 0.6;
+			animation: hud-breathe 2.5s ease-in-out infinite;
+		}
+
+		.hud-label {
+			position: absolute;
+			top: calc(50% + 38px);
+			left: 50%;
+			transform: translateX(-50%);
+			font-size: 10px;
+			font-weight: 300;
+			color: var(--accent);
+			letter-spacing: 0.8px;
+			text-transform: uppercase;
+			white-space: nowrap;
+		}
+
+		@keyframes hud-breathe {
+			0%, 100% { opacity: 0.4; transform: translate(-50%, -50%) scale(1); }
+			50% { opacity: 0.8; transform: translate(-50%, -50%) scale(1.03); }
+		}
+
+		/* === DATE DISPLAY === */
+		#date-display {
+			position: fixed;
+			top: 28px;
+			right: 40px;
+			z-index: 100;
+			text-align: right;
+			background: var(--glass);
+			backdrop-filter: blur(16px);
+			border: 1px solid var(--border);
+			border-radius: 10px;
+			padding: 10px 16px;
+			opacity: 0;
+			transition: opacity 0.4s;
+		}
+
+		body:hover #date-display { opacity: 1; }
+
+		.date-main {
+			font-size: 12px;
+			font-weight: 400;
+			letter-spacing: 0.3px;
+		}
+
+		.date-sub {
+			font-size: 10px;
+			color: var(--text-secondary);
+			margin-top: 2px;
+			font-weight: 300;
+		}
+
+		/* === PLANET LEGEND (drawer, hidden by default) === */
+		#planet-label {
+			position: fixed;
+			top: 50%;
+			right: 0;
+			transform: translateY(-50%) translateX(calc(100% - 30px));
+			z-index: 100;
+			background: var(--glass);
+			backdrop-filter: blur(20px);
+			border: 1px solid var(--border);
+			border-radius: 12px 0 0 12px;
+			padding: 20px 20px 20px 16px;
+			transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+		}
+
+		#planet-label:hover {
+			transform: translateY(-50%) translateX(0);
+		}
+
+		#planet-label .panel-title {
+			font-size: 10px;
+			font-weight: 300;
+			text-transform: uppercase;
+			letter-spacing: 1.5px;
+			color: var(--text-secondary);
+			margin-bottom: 14px;
+		}
+
+		.legend-item {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			padding: 5px 0;
+			cursor: pointer;
+			font-size: 11px;
+			font-weight: 300;
+			color: var(--text-secondary);
+			transition: color 0.2s;
+		}
+
+		.legend-item:hover { color: var(--text-primary); }
+
+		.legend-dot {
 			width: 6px;
 			height: 6px;
-			border: 1px solid rgba(0, 255, 200, 0.6);
 			border-radius: 50%;
-			box-shadow: 0 0 6px rgba(0, 255, 200, 0.4);
+			flex-shrink: 0;
 		}
 
-		@keyframes hud-label-pulse {
-			0%, 100% { opacity: 1; }
-			50% { opacity: 0.75; }
-		}
-
-		#target-hud .hud-scanline {
-			position: absolute;
-			top: 0;
-			left: 0;
-			right: 0;
-			bottom: 0;
-			overflow: hidden;
+		/* === IDLE STATE === */
+		body.idle #search-container,
+		body.idle #controls,
+		body.idle #date-display,
+		body.idle #planet-label {
+			opacity: 0 !important;
 			pointer-events: none;
 		}
-
-		#target-hud .hud-scanline::after {
-			content: '';
-			position: absolute;
-			top: -100%;
-			left: 0;
-			right: 0;
-			height: 100%;
-			background: linear-gradient(180deg, transparent 0%, rgba(0, 200, 255, 0.03) 50%, transparent 100%);
-			animation: scanline-move 3s linear infinite;
-		}
-
-		@keyframes scanline-move {
-			0% { top: -100%; }
-			100% { top: 100%; }
-		}
-		
+			
 		
 		
 		
@@ -429,42 +538,72 @@
 <body>
     <div id="canvas-container"></div>
 	<div id="search-container">
-		<input type="text" id="search-input" placeholder="⟩ CERCA OGGETTO..." autocomplete="off">
-		<button id="search-btn">⌖</button>
+		<div class="search-box">
+			<svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>
+			</svg>
+			<input type="text" id="search-input" placeholder="Cerca un corpo celeste..." autocomplete="off">
+			<span class="search-shortcut">/</span>
+		</div>
 		<div id="search-suggestions"></div>
 		<div id="search-status"></div>
 	</div>
+	<div id="date-display">
+		<div class="date-main" id="sim-date">25 Maggio 2026</div>
+		<div class="date-sub" id="sim-date-sub">Giorno 145 · 14:32 UTC</div>
+	</div>
 
 	<div id="tracking-indicator">
-		<span id="tracking-name">TRACKING: --</span>
-		<button class="stop-btn" id="stop-tracking">✕ STOP</button>
+		<div class="tracking-dot"></div>
+		<span id="tracking-name">—</span>
+		<button class="stop-btn" id="stop-tracking">×</button>
 	</div>
 	
 	<div id="target-hud">
-		<div class="hud-scanline"></div>
-		<div class="hud-bracket tl"></div>
-		<div class="hud-bracket tr"></div>
-		<div class="hud-bracket bl"></div>
-		<div class="hud-bracket br"></div>
-		<div class="hud-crosshair"></div>
-		<div class="hud-distance" id="hud-distance"></div>
+		<div class="hud-ring"></div>
 		<div class="hud-label" id="hud-label"></div>
 	</div>
 
-    <div id="controls">
-        <button id="btn-play" class="active">▶ Play</button>
-        <button id="btn-pause">⏸ Pausa</button>
-        <label>Velocità:</label>
-        <input type="range" id="speed-slider" min="0.1" max="50" step="0.1" value="1">
-        <span id="speed-value">1.0x</span>
-    </div>
+	<div id="controls">
+		<div class="play-btn" id="play-btn">
+			<svg viewBox="0 0 24 24" id="play-icon">
+				<polygon points="8,5 19,12 8,19"/>
+			</svg>
+		</div>
+		<div class="timeline-track" id="timeline-track">
+			<div class="timeline-fill" id="timeline-fill"></div>
+		</div>
+		<div class="speed-control" id="speed-control"><span>1</span>x</div>
+	</div>
 
-    <div id="info-panel">
-        <div class="title">🌌 Sistema Solare</div>
-        <div class="scale" id="scale-info">Scala: ~1 unità ≈ 0.15 UA</div>
-        <div class="scale" id="zoom-info">Distanza camera: --</div>
-        <div class="scale" id="time-info">Tempo simulato: 0 giorni</div>
-    </div>
+	<div id="info-panel">
+		<div class="info-card-inner">
+			<div class="info-card-header">
+				<div class="info-card-dot"></div>
+				<div class="info-card-name" id="info-name">—</div>
+			</div>
+			<div class="info-card-type" id="info-type">—</div>
+			<div class="info-card-divider"></div>
+			<div class="info-card-data">
+				<div class="info-data-row">
+					<span class="info-data-label">Distanza</span>
+					<span class="info-data-value" id="info-distance">—</span>
+				</div>
+				<div class="info-data-row">
+					<span class="info-data-label">Raggio</span>
+					<span class="info-data-value" id="info-radius">—</span>
+				</div>
+				<div class="info-data-row">
+					<span class="info-data-label">Periodo</span>
+					<span class="info-data-value" id="info-period">—</span>
+				</div>
+				<div class="info-data-row">
+					<span class="info-data-label">Velocità</span>
+					<span class="info-data-value" id="info-speed">—</span>
+				</div>
+			</div>
+		</div>
+	</div>
 
     <div id="planet-label">
         <div class="panel-title">Pianeti</div>
@@ -913,22 +1052,36 @@
             orbitGroup.rotation.x = inclination;
             scene.add(orbitGroup);
 
-            const orbitCurve = new THREE.EllipseCurve(
-                -c, 0,    // center offset (focus at origin)
-                a, b,     // xRadius, yRadius
-                0, 2 * Math.PI,
-                false, 0
-            );
-            const orbitPoints = orbitCurve.getPoints(256);
-            const orbitGeo3D = new THREE.BufferGeometry().setFromPoints(
-                orbitPoints.map(p => new THREE.Vector3(p.x, 0, p.y))
-            );
-            const orbitLine = new THREE.Line(orbitGeo3D, new THREE.LineBasicMaterial({
-                color: 0x00e6ff,
-                transparent: true,
-                opacity: 0.12
-            }));
-            orbitGroup.add(orbitLine);
+			const orbitCurve = new THREE.EllipseCurve(
+				-c, 0,
+				a, b,
+				0, 2 * Math.PI,
+				false, 0
+			);
+			const orbitPoints = orbitCurve.getPoints(256);
+			const orbitGeo3D = new THREE.BufferGeometry().setFromPoints(
+				orbitPoints.map(p => new THREE.Vector3(p.x, 0, p.y))
+			);
+
+			// Vertex colors: arco parziale con fade
+			const orbitColorArray = new Float32Array(orbitPoints.length * 3);
+			const phaseOffset = idx * 0.7; // ogni pianeta ha l'arco sfasato
+			for (let i = 0; i < orbitPoints.length; i++) {
+				const t = i / orbitPoints.length;
+				const fade = Math.pow(Math.max(0, Math.sin((t + phaseOffset) * Math.PI)), 2.0);
+				orbitColorArray[i * 3] = fade;
+				orbitColorArray[i * 3 + 1] = fade;
+				orbitColorArray[i * 3 + 2] = fade;
+			}
+			orbitGeo3D.setAttribute('color', new THREE.Float32BufferAttribute(orbitColorArray, 3));
+
+			const orbitLine = new THREE.Line(orbitGeo3D, new THREE.LineBasicMaterial({
+				color: 0x7dd3fc,
+				transparent: true,
+				opacity: 0.25,
+				vertexColors: true
+			}));
+			orbitGroup.add(orbitLine);
 
             // Store planet info
 			planets.push({
@@ -976,7 +1129,7 @@
 			mesh.userData.currentLOD = 'low';
 			scene.add(mesh);
 
-			// Orbit path (ellipse) - electric orange sci-fi style
+			// Orbit path (ellipse) 
 			const orbitGroup = new THREE.Group();
 			orbitGroup.rotation.x = inclination;
 			scene.add(orbitGroup);
@@ -991,10 +1144,24 @@
 			const orbitGeo3D = new THREE.BufferGeometry().setFromPoints(
 				orbitPoints.map(p => new THREE.Vector3(p.x, 0, p.y))
 			);
+
+			// Vertex colors: arco parziale con fade
+			const orbitColorArray = new Float32Array(orbitPoints.length * 3);
+			const phaseOffset = Math.random() * 2;
+			for (let i = 0; i < orbitPoints.length; i++) {
+				const t = i / orbitPoints.length;
+				const fade = Math.pow(Math.max(0, Math.sin((t + phaseOffset) * Math.PI)), 2.0);
+				orbitColorArray[i * 3] = fade;
+				orbitColorArray[i * 3 + 1] = fade;
+				orbitColorArray[i * 3 + 2] = fade;
+			}
+			orbitGeo3D.setAttribute('color', new THREE.Float32BufferAttribute(orbitColorArray, 3));
+
 			const orbitLine = new THREE.Line(orbitGeo3D, new THREE.LineBasicMaterial({
-				color: 0xff6600,
+				color: 0x7dd3fc,
 				transparent: true,
-				opacity: 0.25
+				opacity: 0.18,
+				vertexColors: true
 			}));
 			orbitGroup.add(orbitLine);
 
@@ -1114,10 +1281,24 @@
 				const orbitGeo3D = new THREE.BufferGeometry().setFromPoints(
 					orbitPoints.map(p => new THREE.Vector3(p.x, 0, p.y))
 				);
+
+				// Vertex colors: arco parziale con fade
+				const satOrbitColors = new Float32Array(orbitPoints.length * 3);
+				const satPhase = Math.random() * 2;
+				for (let i = 0; i < orbitPoints.length; i++) {
+					const t = i / orbitPoints.length;
+					const fade = Math.pow(Math.max(0, Math.sin((t + satPhase) * Math.PI)), 2.0);
+					satOrbitColors[i * 3] = fade;
+					satOrbitColors[i * 3 + 1] = fade;
+					satOrbitColors[i * 3 + 2] = fade;
+				}
+				orbitGeo3D.setAttribute('color', new THREE.Float32BufferAttribute(satOrbitColors, 3));
+
 				const orbitLine = new THREE.Line(orbitGeo3D, new THREE.LineBasicMaterial({
-					color: 0x556677,
+					color: 0x7dd3fc,
 					transparent: true,
-					opacity: 0.3
+					opacity: 0.15,
+					vertexColors: true
 				}));
 				orbitGroup.add(orbitLine);
 				orbitGroup.rotation.x = inclination;
@@ -1158,27 +1339,26 @@
         let speedMultiplier = 1.0;
         let simulatedDays = 0;
 
-        const btnPlay = document.getElementById('btn-play');
-        const btnPause = document.getElementById('btn-pause');
-        const speedSlider = document.getElementById('speed-slider');
-        const speedValue = document.getElementById('speed-value');
+		const playBtn = document.getElementById('play-btn');
+		const playIcon = document.getElementById('play-icon');
+		const speedControl = document.getElementById('speed-control');
+		const speeds = [0.1, 0.5, 1, 2, 5, 10, 20, 50];
+		let speedIdx = 2; // parte da 1x
 
-        btnPlay.addEventListener('click', () => {
-            isPlaying = true;
-            btnPlay.classList.add('active');
-            btnPause.classList.remove('active');
-        });
+		playBtn.addEventListener('click', () => {
+			isPlaying = !isPlaying;
+			if (isPlaying) {
+				playIcon.innerHTML = '<polygon points="8,5 19,12 8,19"/>';
+			} else {
+				playIcon.innerHTML = '<rect x="7" y="5" width="3" height="14"/><rect x="14" y="5" width="3" height="14"/>';
+			}
+		});
 
-        btnPause.addEventListener('click', () => {
-            isPlaying = false;
-            btnPause.classList.add('active');
-            btnPlay.classList.remove('active');
-        });
-
-        speedSlider.addEventListener('input', (e) => {
-            speedMultiplier = parseFloat(e.target.value);
-            speedValue.textContent = speedMultiplier.toFixed(1) + 'x';
-        });
+		speedControl.addEventListener('click', () => {
+			speedIdx = (speedIdx + 1) % speeds.length;
+			speedMultiplier = speeds[speedIdx];
+			speedControl.innerHTML = '<span>' + speeds[speedIdx] + '</span>x';
+		});
 
         // === RESIZE ===
         window.addEventListener('resize', () => {
@@ -1190,14 +1370,11 @@
 
         // === ANIMATION LOOP ===
         const clock = new THREE.Clock();
-        const scaleInfo = document.getElementById('scale-info');
-        const zoomInfo = document.getElementById('zoom-info');
-        const timeInfo = document.getElementById('time-info');
+
 		
 		
 		// === SEARCH & TRACKING SYSTEM ===
 		const searchInput = document.getElementById('search-input');
-		const searchBtn = document.getElementById('search-btn');
 		const searchSuggestions = document.getElementById('search-suggestions');
 		const searchStatus = document.getElementById('search-status');
 		const trackingIndicator = document.getElementById('tracking-indicator');
@@ -1293,6 +1470,81 @@
 			searchStatus.classList.add('visible');
 			setTimeout(() => searchStatus.classList.remove('visible'), duration);
 		}
+		
+		function updateInfoCard(obj) {
+			const panel = document.getElementById('info-panel');
+			const nameEl = document.getElementById('info-name');
+			const typeEl = document.getElementById('info-type');
+			const distEl = document.getElementById('info-distance');
+			const radiusEl = document.getElementById('info-radius');
+			const periodEl = document.getElementById('info-period');
+			const speedEl = document.getElementById('info-speed');
+
+			let data = null;
+
+			// Cerca tra pianeti
+			const p = planets.find(pl => pl.name === obj.name);
+			if (p) {
+				const pd = planetData.find(d => d.name === obj.name);
+				data = {
+					type: 'Pianeta',
+					distance: pd.aAU.toFixed(2),
+					radius: (pd.radiusAU / KM_TO_AU).toFixed(0),
+					period: pd.period.toFixed(1),
+					speed: ((2 * Math.PI * pd.aAU * 149597870.7) / (pd.period * 86400)).toFixed(2)
+				};
+			}
+
+			// Cerca tra pianeti nani
+			const d = dwarfPlanets.find(dp => dp.name === obj.name);
+			if (d) {
+				const dd = dwarfPlanetData.find(x => x.name === obj.name);
+				data = {
+					type: 'Pianeta nano',
+					distance: dd.aAU.toFixed(2),
+					radius: (dd.radiusAU / KM_TO_AU).toFixed(0),
+					period: dd.period.toFixed(1),
+					speed: ((2 * Math.PI * dd.aAU * 149597870.7) / (dd.period * 86400)).toFixed(2)
+				};
+			}
+
+			// Cerca tra satelliti
+			const s = satellites.find(sa => sa.name === obj.name);
+			if (s) {
+				data = {
+					type: `Satellite di ${s.parentName}`,
+					distance: (s.a / AU_SCALE).toFixed(5),
+					radius: (s.realRadius / AU_SCALE / KM_TO_AU).toFixed(0),
+					period: s.period.toFixed(2),
+					speed: '—'
+				};
+			}
+
+			// Sole
+			if (obj.name === 'Sole') {
+				data = {
+					type: 'Stella',
+					distance: '0',
+					radius: '695700',
+					period: '—',
+					speed: '—'
+				};
+			}
+
+			if (data) {
+				nameEl.textContent = obj.name;
+				typeEl.textContent = data.type;
+				distEl.innerHTML = data.distance + '<span class="info-data-unit">AU</span>';
+				radiusEl.innerHTML = Number(data.radius).toLocaleString() + '<span class="info-data-unit">km</span>';
+				periodEl.innerHTML = data.period + '<span class="info-data-unit">giorni</span>';
+				speedEl.innerHTML = data.speed + '<span class="info-data-unit">km/s</span>';
+				panel.classList.add('visible');
+			}
+		}
+		
+		
+		
+		
 
 		function navigateToObject(name) {
 			const obj = searchableObjects.find(o => o.name === name);
@@ -1375,8 +1627,9 @@
 			trackingMode = 'observe'; // dalla ricerca: modalità osservazione (camera fissa)
 			pendingFollowTransition = false;
 
-			trackingName.textContent = `OBSERVING: ${obj.name.toUpperCase()}`;
+			trackingName.textContent = obj.name;
 			trackingIndicator.classList.add('visible');
+			updateInfoCard(obj);
 			searchSuggestions.classList.remove('visible');
 		}
 
@@ -1388,6 +1641,7 @@
 			trackingIndicator.classList.remove('visible');
 			targetHud.classList.remove('visible');
 			controls.minDistance = 0.005; // ripristina default
+			document.getElementById('info-panel').classList.remove('visible');
 		}
 
 		// Easing function (smooth)
@@ -1421,7 +1675,7 @@
 					if (pendingFollowTransition) {
 						pendingFollowTransition = false;
 						trackingMode = 'follow';
-						trackingName.textContent = `TRACKING: ${trackingTarget.name.toUpperCase()}`;
+						trackingName.textContent = trackingTarget.name;
 
 						let objectRadius = sunRadiusScene;
 						const planetObj = planets.find(p => p.name === trackingTarget.name);
@@ -1477,18 +1731,6 @@
 				searchInput.blur();
 			}
 		});
-
-		searchBtn.addEventListener('click', () => {
-			const results = getSearchResults(searchInput.value);
-			if (results.length > 0) {
-				searchInput.value = results[0].name;
-				searchSuggestions.classList.remove('visible');
-				navigateToObject(results[0].name);
-			} else {
-				showStatus('⚠ NESSUN RISULTATO');
-			}
-		});
-
 		stopTrackingBtn.addEventListener('click', stopTracking);
 
 
@@ -1511,14 +1753,10 @@
 			}
 
 			const targetPos = trackingTarget.getPosition();
-			
-			// Aggiorna matrici camera prima della proiezione
 			camera.updateMatrixWorld();
 
-			// Project 3D position to 2D screen
 			const projected = targetPos.clone().project(camera);
 
-			// Check if behind camera
 			if (projected.z > 1) {
 				targetHud.classList.remove('visible');
 				return;
@@ -1527,48 +1765,30 @@
 			const screenX = (projected.x * 0.5 + 0.5) * window.innerWidth;
 			const screenY = (-projected.y * 0.5 + 0.5) * window.innerHeight;
 
-			// Calculate apparent size based on distance and object radius
+			// Dimensione ring fissa (o basata su distanza)
 			const dist = camera.position.distanceTo(targetPos);
-			let objectRadius = sunRadiusScene; // default (sun)
+			let objectRadius = sunRadiusScene;
 			const planetObj = planets.find(p => p.name === trackingTarget.name);
 			const dwarfObj = dwarfPlanets.find(p => p.name === trackingTarget.name);
 			const satObj = satellites.find(s => s.name === trackingTarget.name);
-			
-			if (planetObj) {
-				objectRadius = planetObj.realRadius;
-			} else if (dwarfObj) {
-				objectRadius = dwarfObj.realRadius;
-			} else if (satObj) {
-				objectRadius = satObj.realRadius;
-			}
+			if (planetObj) objectRadius = planetObj.realRadius;
+			else if (dwarfObj) objectRadius = dwarfObj.realRadius;
+			else if (satObj) objectRadius = satObj.realRadius;
 
-			// Considera il dynamic scaling: l'oggetto appare più grande di quanto sia realmente
 			const dynamicScale = getDynamicScale(objectRadius, dist, MIN_PIXEL_SIZE);
 			const apparentRadius = objectRadius * dynamicScale;
-
-			// HUD box size: proportional to apparent angular size, with min/max
 			const angularSize = apparentRadius / dist;
-			const boxSize = Math.max(60, Math.min(200, angularSize * window.innerHeight * 3));
+			const ringSize = Math.max(50, Math.min(150, angularSize * window.innerHeight * 3));
 
-			// Position HUD
-			targetHud.style.left = (screenX - boxSize / 2) + 'px';
-			targetHud.style.top = (screenY - boxSize / 2) + 'px';
-			targetHud.style.width = boxSize + 'px';
-			targetHud.style.height = boxSize + 'px';
+			// Posiziona il contenitore centrato sull'oggetto
+			targetHud.style.left = screenX + 'px';
+			targetHud.style.top = screenY + 'px';
 
-			// Bracket size scales with box
-			const bracketSize = Math.max(16, boxSize * 0.28);
-			targetHud.querySelectorAll('.hud-bracket').forEach(b => {
-				b.style.width = bracketSize + 'px';
-				b.style.height = bracketSize + 'px';
-			});
+			const ring = targetHud.querySelector('.hud-ring');
+			ring.style.width = ringSize + 'px';
+			ring.style.height = ringSize + 'px';
 
-			// Update label
-			hudLabel.textContent = trackingTarget.name.toUpperCase();
-
-			// Update distance
-			const distUA = (dist / AU_SCALE).toFixed(3);
-			hudDistance.textContent = `DST: ${distUA} UA`;
+			document.getElementById('hud-label').textContent = trackingTarget.name;
 
 			targetHud.classList.add('visible');
 		}
@@ -1675,8 +1895,9 @@
 
 					controls.minDistance = Math.max(offsetDist * 0.1, 0.0001);
 
-					trackingName.textContent = `ZOOM → ${clickedName.toUpperCase()}`;
+					trackingName.textContent = clickedName;
 					trackingIndicator.classList.add('visible');
+					updateInfoCard(obj);
 				}
 			}
 		});
@@ -1759,15 +1980,19 @@
             // Update info panel
             const dist = camera.position.length();
             const distUA = (dist / AU_SCALE).toFixed(2);
-			scaleInfo.textContent = `Scala reale — 1 UA = ${AU_SCALE.toFixed(1)} unità scena`;
-            zoomInfo.textContent = `Distanza camera: ${distUA} UA`;
-
-            if (simulatedDays < 365) {
-                timeInfo.textContent = `Tempo simulato: ${Math.floor(simulatedDays)} giorni`;
-            } else {
-                const years = (simulatedDays / 365.25).toFixed(2);
-                timeInfo.textContent = `Tempo simulato: ${years} anni`;
-            }
+			
+			
+			// Aggiorna date display
+			const dateMain = document.getElementById('sim-date');
+			const dateSub = document.getElementById('sim-date-sub');
+			if (dateMain && dateSub) {
+				const baseDate = new Date(2026, 4, 25); // 25 maggio 2026
+				const simDate = new Date(baseDate.getTime() + simulatedDays * 86400000);
+				const options = { day: 'numeric', month: 'long', year: 'numeric' };
+				dateMain.textContent = simDate.toLocaleDateString('it-IT', options);
+				const dayOfYear = Math.floor((simDate - new Date(simDate.getFullYear(), 0, 0)) / 86400000);
+				dateSub.textContent = `Giorno ${dayOfYear} · ${speedMultiplier}x`;
+			}
 
             
 			
@@ -1917,7 +2142,26 @@
             composer.render();
         }
 
-        animate();
+
+	
+		
+		// === IDLE DETECTION ===
+		let idleTimer;
+		function resetIdle() {
+			document.body.classList.remove('idle');
+			clearTimeout(idleTimer);
+			idleTimer = setTimeout(() => {
+				document.body.classList.add('idle');
+			}, 6000);
+		}
+		document.addEventListener('mousemove', resetIdle);
+		document.addEventListener('click', resetIdle);
+		document.addEventListener('keydown', resetIdle);
+		resetIdle();
+		
+		animate();
+		
+		
     </script>
 </body>
 </html>
