@@ -1726,6 +1726,9 @@
 		const OBSERVE_SMOOTH = 0.04;                   // morbidezza del movimento della camera
 		let observeStartTime = 0;               // istante di aggancio (per il timing delle fasi)
 		const OBSERVE_PHASE12_DURATION = 4.0;   // secondi di camera ferma prima dell'inseguimento
+		let observePhase = 'TRANSIT';               // 'TRANSIT' (camera ferma) | 'CHASE' (inseguimento)
+		let observeFixedPos = new THREE.Vector3();  // posizione fissa camera durante il transito
+		let chaseDist = 0;                          // distanza di inseguimento in fase CHASE
 
 		function getSearchResults(query) {
 			if (!query || query.length === 0) return [];
@@ -1982,20 +1985,22 @@
 				const tangentDir = new THREE.Vector3(-radialDir.z, 0, radialDir.x).normalize(); // tangente orizzontale
 				const upDir = new THREE.Vector3(0, 1, 0);
 				
-				// Camera posizionata: 40% tangente + 70% sopra + 20% radiale (verso esterno)
-				// Questo dà una visuale laterale-alta, l'oggetto scorre davanti in modo fluido
-				const cameraDir = tangentDir.clone().multiplyScalar(0.7)
-					.add(upDir.clone().multiplyScalar(0.2))
-					.add(radialDir.clone().multiplyScalar(0.7))
-					.normalize();
+				// Camera FUORI dal piano di marcia: radiale (esterno) + un po' dall'alto.
+				// NIENTE componente tangenziale: così il pianeta scorre di lato nell'inquadratura.
+				const cameraDir = radialDir.clone().multiplyScalar(0.90)
+				  .add(upDir.clone().multiplyScalar(0.30))
+				  .normalize();
 				
 				// Distanza maggiore per observe: 1.3x l'offset normale, così si vede l'arco orbitale
 				const observeDist = offsetDist * 1.3;
 				cameraEndOffset = cameraDir.multiplyScalar(observeDist);
 				
+				observePhase = 'TRANSIT';
+				chaseDist = observeDist * 2;   // insegue da più lontano -> resta visibile il sistema
+				
 				// Camera spostata "a sinistra" dell'orbita: sinistra = tangente × up
-				const leftDir = tangentDir.clone().cross(upDir).normalize();
-				cameraEndOffset.add(leftDir.multiplyScalar(observeDist * 0.6));
+			//	const leftDir = tangentDir.clone().cross(upDir).normalize();
+			//	cameraEndOffset.add(leftDir.multiplyScalar(observeDist * 0.6));
 
 				// Salva stato per l'observe dinamico
 				observeTangentDir.copy(tangentDir);
@@ -2057,7 +2062,7 @@
 		}
 
 		// Update camera tracking (called in animate loop)
-		function updateCameraTracking() {
+		function updateCameraTracking(delta) {
 			if (!trackingTarget) return;
 
 			const targetPos = trackingTarget.getPosition();
@@ -2090,6 +2095,9 @@
 					observeOffTangent = observeAnchorPos.dot(tan0);
 					observeOffUp      = observeAnchorPos.dot(up0);
 					
+					observeFixedPos.copy(camera.position);   // camera ferma qui durante il transito
+					observePhase = 'TRANSIT';
+					
 					
 
 					// Se stavamo transitando verso follow, attiva la modalità follow
@@ -2111,25 +2119,33 @@
 				}
 			
 			} else if (trackingMode === 'observe') {
-				// Frame orbitale CORRENTE del pianeta
-				const radNow = targetPos.clone().normalize();
-				const tanNow = new THREE.Vector3(-radNow.z, 0, radNow.x).normalize();
-				const upNow = new THREE.Vector3(0, 1, 0);
+				  const speed = isPlaying ? Math.max(1, speedMultiplier) : 1;
+				  const t = 1 - Math.pow(1 - OBSERVE_SMOOTH, delta * 60 * speed);
+				  const s = THREE.MathUtils.clamp(t, 0, 1);
 
-				// Ricostruisci l'offset con le componenti locali salvate all'aggancio:
-				// la camera mantiene la stessa geometria relativa al pianeta a QUALSIASI
-				// velocità orbitale, ruotando insieme a lui attorno al Sole.
-				const baseOffset = new THREE.Vector3()
-					.addScaledVector(radNow, observeOffRadial)
-					.addScaledVector(tanNow, observeOffTangent)
-					.addScaledVector(upNow, observeOffUp);
+				  const distToPlanet = camera.position.distanceTo(targetPos);
 
-				// Zoom utente (rotella)
-				baseOffset.multiplyScalar(observeUserZoom);
+				  if (observePhase === 'TRANSIT') {
+					// FASE 1: camera FERMA nel punto di ripresa; segue solo lo SGUARDO.
+					// Il pianeta attraversa l'inquadratura (da un lato all'altro).
+					const fixed = observeFixedPos.clone().multiplyScalar(observeUserZoom > 0 ? 1 : 1);
+					camera.position.lerp(observeFixedPos, s * 0.5); // resta ancorata, arrivo morbido
+					controls.target.lerp(targetPos, s);             // gira solo verso il pianeta
 
-				const desiredPos = targetPos.clone().add(baseOffset);
-				camera.position.lerp(desiredPos, OBSERVE_SMOOTH);
-				controls.target.copy(targetPos);
+					// Quando il pianeta si è allontanato oltre soglia -> passa a CHASE
+					if (distToPlanet > chaseDist) {
+					  observePhase = 'CHASE';
+					}
+				  } else { // CHASE
+					// FASE 2: insegue da lontano mantenendo distanza chaseDist,
+					// leggermente dall'alto per tenere in campo Sole e orbite.
+					const dir = camera.position.clone().sub(targetPos).normalize();
+					const desiredPos = targetPos.clone().add(dir.multiplyScalar(chaseDist * observeUserZoom));
+					desiredPos.y += chaseDist * 0.25;
+					camera.position.lerp(desiredPos, s);
+					controls.target.lerp(targetPos, s);
+				  }
+
 				
 				
 			} else if (trackingMode === 'follow') {
@@ -2496,7 +2512,7 @@
 			
 			
 			// Camera tracking update
-            updateCameraTracking();	
+            updateCameraTracking(delta);	
 			controls.update();
 			updateTargetHUD();
 			
