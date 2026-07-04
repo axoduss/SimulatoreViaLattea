@@ -528,6 +528,46 @@
 			opacity: 0 !important;
 			pointer-events: none;
 		}
+		
+		
+		
+		#ai-panel {
+		  position: fixed;
+		  bottom: 100px;
+		  left: 300px; /* accanto alla info card */
+		  z-index: 100;
+		  max-width: 320px;
+		  opacity: 0;
+		  transform: translateY(12px);
+		  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+		  pointer-events: none;
+		}
+		#ai-panel.visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+		.ai-card-inner {
+		  background: var(--glass);
+		  backdrop-filter: blur(24px);
+		  -webkit-backdrop-filter: blur(24px);
+		  border: 1px solid var(--border);
+		  border-radius: 12px;
+		  padding: 20px;
+		  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(125, 211, 252, 0.05);
+		}
+		.ai-card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+		.ai-dot {
+		  width: 8px; height: 8px; border-radius: 50%;
+		  background: var(--accent); box-shadow: 0 0 8px rgba(125, 211, 252, 0.5);
+		  animation: dot-pulse 1.8s ease-in-out infinite;
+		}
+		.ai-title {
+		  font-size: 10px; font-weight: 300; text-transform: uppercase;
+		  letter-spacing: 1.5px; color: var(--text-secondary);
+		}
+		.ai-status { font-size: 9px; color: var(--text-dim); margin-left: auto; }
+		.ai-card-body {
+		  font-size: 12px; font-weight: 300; line-height: 1.6;
+		  color: var(--text-primary);
+		}
+		<!-- body.idle #ai-panel:not(.generating) { opacity: 0 !important; pointer-events: none; } -->
 			
 		
 		
@@ -549,8 +589,8 @@
 		<div id="search-status"></div>
 	</div>
 	<div id="date-display">
-		<div class="date-main" id="sim-date">25 Maggio 2026</div>
-		<div class="date-sub" id="sim-date-sub">Giorno 145 · 14:32 UTC</div>
+		<div class="date-main" id="sim-date">—</div>
+		<div class="date-sub" id="sim-date-sub">—</div>
 	</div>
 
 	<div id="tracking-indicator">
@@ -604,6 +644,17 @@
 			</div>
 		</div>
 	</div>
+	
+	<div id="ai-panel">
+	  <div class="ai-card-inner">
+		<div class="ai-card-header">
+		  <span class="ai-dot"></span>
+		  <span class="ai-title">Guida AI</span>
+		  <span class="ai-status" id="ai-status"></span>
+		</div>
+		<div class="ai-card-body" id="ai-narration">—</div>
+	  </div>
+	</div>
 
     <div id="planet-label">
         <div class="panel-title">Pianeti</div>
@@ -654,8 +705,205 @@
 		
 		const AU_SCALE = 6.5; // 1 AU = 6.5 scene units
 		const KM_TO_AU = 1 / 149597870.7;
+		const DEG2RAD = Math.PI / 180;
 		
 		
+		// ============================================================
+		//  MODULO AI — infrastruttura condivisa per tutte le funzioni
+		// ============================================================
+		const AI = {
+		  url: 'http://localhost:11434',
+		  model: 'gemma4:e4b',
+		  enabled: false,      // flag globale: settato dal check iniziale
+		  checked: false,      // evita check multipli
+		  cache: new Map(),    // cache risposte (chiave = prompt)
+
+		  // Check iniziale, da chiamare una volta all'avvio dell'app
+		  async init() {
+			if (this.checked) return this.enabled;
+			this.checked = true;
+			try {
+			  const controller = new AbortController();
+			  const t = setTimeout(() => controller.abort(), 1500);
+			  const res = await fetch(`${this.url}/api/tags`, { signal: controller.signal });
+			  clearTimeout(t);
+			  this.enabled = res.ok;
+			  if (this.enabled) {
+				// opzionale: verifica che il modello richiesto sia presente
+				const data = await res.json();
+				const models = (data.models || []).map(m => m.name);
+				const found = models.some(n => n.startsWith(this.model));
+				if (!found && models.length) {
+				  console.warn(`[AI] Modello "${this.model}" non trovato. Uso "${models[0]}".`);
+				  this.model = models[0]; // fallback sul primo disponibile
+				}
+			  }
+			} catch (e) {
+			  this.enabled = false;
+			}
+			console.log(`[AI] ${this.enabled ? 'attiva ✔ (' + this.model + ')' : 'non disponibile ✖'}`);
+			this.updateGlobalUI();
+			return this.enabled;
+		  },
+
+		  // Aggiorna elementi UI globali che dipendono dallo stato AI
+		  updateGlobalUI() {
+			document.body.classList.toggle('ai-on', this.enabled);
+			document.body.classList.toggle('ai-off', !this.enabled);
+		  },
+
+		  // ---- Funzione parametrica riutilizzabile ----
+		  // options: { prompt, system, json, stream, onChunk, useCache, timeout, signal }
+		  async ask(options) {
+			if (!this.enabled) throw new Error('AI_DISABLED');
+
+			const {
+			  prompt,
+			  system = null,
+			  json = false,
+			  stream = false,
+			  onChunk = null,
+			  useCache = false,
+			  timeout = 200000,
+			  signal = null,        // AbortSignal esterno (es. per annullare al cambio oggetto)
+			} = options;
+
+			// Cache: solo per risposte non-stream
+			const cacheKey = json ? 'json::' + prompt : prompt;
+			if (useCache && !stream && this.cache.has(cacheKey)) {
+			  return this.cache.get(cacheKey);
+			}
+
+			const body = {
+			  model: this.model,
+			  prompt,
+			  stream,
+			  ...(system ? { system } : {}),
+			  ...(json ? { format: 'json' } : {}),
+			};
+
+			const controller = new AbortController();
+			const t = setTimeout(() => controller.abort(), timeout);
+			// se arriva un abort esterno, propaghiamo
+			if (signal) signal.addEventListener('abort', () => controller.abort());
+
+			try {
+			  const res = await fetch(`${this.url}/api/generate`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(body),
+				signal: controller.signal,
+			  });
+			  if (!res.ok) throw new Error('HTTP ' + res.status);
+
+			  if (stream) {
+				const reader = res.body.getReader();
+				const decoder = new TextDecoder();
+				let full = '';
+				while (true) {
+				  const { done, value } = await reader.read();
+				  if (done) break;
+				  const chunk = decoder.decode(value, { stream: true });
+				  for (const line of chunk.split('\n')) {
+					if (!line.trim()) continue;
+					try {
+					  const j = JSON.parse(line);
+					  if (j.response) {
+						full += j.response;
+						if (onChunk) onChunk(j.response, full);
+					  }
+					} catch (_) { /* riga parziale */ }
+				  }
+				}
+				return full;
+			  } else {
+				const data = await res.json();
+				const out = json ? JSON.parse(data.response) : data.response;
+				if (useCache) this.cache.set(cacheKey, out);
+				return out;
+			  }
+			} finally {
+			  clearTimeout(t);
+			}
+		  }
+		};	
+		
+				// Risolve l'equazione di Keplero: M = E - e*sin(E)
+		function solveKepler(M, e) {
+		  let E = M;
+		  for (let i = 0; i < 8; i++) {
+			E = E - (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E));
+		  }
+		  return E;
+		}
+
+		// Calcola posizione eliocentrica reale nel piano dell'eclittica
+		function keplerPosition(body, days) {
+		  const n = 2 * Math.PI / body.period;      // moto medio (rad/giorno)
+		  const L = body.LDeg * DEG2RAD + n * days; // longitudine media
+		  const varpi = body.varpiDeg * DEG2RAD;
+		  const omega = body.omegaDeg * DEG2RAD;
+		  const M = L - varpi;                       // anomalia media
+		  const E = solveKepler(M, body.e);          // anomalia eccentrica
+
+		  // posizione nel piano orbitale (fuoco = Sole)
+		  const xp = body.a * (Math.cos(E) - body.e);
+		  const yp = body.b * Math.sin(E);
+
+		  const argP = varpi - omega;                // argomento del perielio
+		  const cosW = Math.cos(argP), sinW = Math.sin(argP);
+		  const cosO = Math.cos(omega), sinO = Math.sin(omega);
+		  const cosI = Math.cos(body.inclination), sinI = Math.sin(body.inclination);
+
+		  // 1) rotazione per argomento del perielio (nel piano orbitale)
+		  const x1 = xp * cosW - yp * sinW;
+		  const y1 = xp * sinW + yp * cosW;
+
+		  // 2) inclinazione (ribalta y1 su piano verticale)
+		  //    piano eclittica: x = est/ovest, z = piano orizzontale, y = verticale
+		  const x2 = x1;
+		  const y2 = y1 * sinI;
+		  const z2 = y1 * cosI;
+
+		  // 3) rotazione per nodo ascendente (attorno all'asse Y verticale)
+		  return {
+			x: x2 * cosO - z2 * sinO,
+			y: y2,
+			z: x2 * sinO + z2 * cosO
+		  };
+		}
+		
+		// Genera i punti 3D di un'orbita completa usando lo STESSO modello dei corpi
+		function buildOrbitPoints(body, segments = 256) {
+		  const varpi = body.varpiDeg * DEG2RAD;
+		  const omega = body.omegaDeg * DEG2RAD;
+		  const argP = varpi - omega;
+		  const cosW = Math.cos(argP), sinW = Math.sin(argP);
+		  const cosO = Math.cos(omega), sinO = Math.sin(omega);
+		  const cosI = Math.cos(body.inclination), sinI = Math.sin(body.inclination);
+
+		  const pts = [];
+		  for (let i = 0; i <= segments; i++) {
+			const E = (i / segments) * 2 * Math.PI; // anomalia eccentrica
+			const xp = body.a * (Math.cos(E) - body.e);
+			const yp = body.b * Math.sin(E);
+
+			const x1 = xp * cosW - yp * sinW;
+			const y1 = xp * sinW + yp * cosW;
+
+			const x2 = x1;
+			const y2 = y1 * sinI;
+			const z2 = y1 * cosI;
+
+			pts.push(new THREE.Vector3(
+			  x2 * cosO - z2 * sinO,
+			  y2,
+			  x2 * sinO + z2 * cosO
+			));
+		  }
+		  return pts;
+		}
+
 		
 		
 		
@@ -997,14 +1245,14 @@
         // === PLANET DATA ===
         // radius in AU (raggio reale in km * KM_TO_AU)
 		const planetData = [
-			{ name: 'Mercurio', aAU: 0.387, e: 0.2056, iDeg: 7.0,   period: 87.97,   radiusAU: 2439.7 * KM_TO_AU, color: 0xb0b0b0 },
-			{ name: 'Venere',   aAU: 0.723, e: 0.0068, iDeg: 3.39,  period: 224.7,   radiusAU: 6051.8 * KM_TO_AU, color: 0xe8c56d },
-			{ name: 'Terra',    aAU: 1.000, e: 0.0167, iDeg: 0.0,   period: 365.25,  radiusAU: 6371.0 * KM_TO_AU, color: 0x4488ff },
-			{ name: 'Marte',    aAU: 1.524, e: 0.0934, iDeg: 1.85,  period: 687.0,   radiusAU: 3389.5 * KM_TO_AU, color: 0xcc4422 },
-			{ name: 'Giove',    aAU: 5.203, e: 0.0485, iDeg: 1.30,  period: 4332.6,  radiusAU: 69911.0 * KM_TO_AU, color: 0xc88a50 },
-			{ name: 'Saturno',  aAU: 9.537, e: 0.0556, iDeg: 2.49,  period: 10759.2, radiusAU: 58232.0 * KM_TO_AU, color: 0xd4a84b },
-			{ name: 'Urano',    aAU: 19.19, e: 0.0472, iDeg: 0.77,  period: 30688.5, radiusAU: 25362.0 * KM_TO_AU, color: 0x88ccdd },
-			{ name: 'Nettuno',  aAU: 30.07, e: 0.0086, iDeg: 1.77,  period: 60182.0, radiusAU: 24622.0 * KM_TO_AU, color: 0x4466dd }
+		  { name: 'Mercurio', aAU: 0.387, e: 0.2056, iDeg: 7.0,  period: 87.97,   LDeg: 252.25084, varpiDeg: 77.45645, omegaDeg: 48.33167, radiusAU: 2439.7 * KM_TO_AU, color: 0xb0b0b0 },
+		  { name: 'Venere',   aAU: 0.723, e: 0.0068, iDeg: 3.39, period: 224.7,   LDeg: 181.97973, varpiDeg: 131.53298, omegaDeg: 76.68069, radiusAU: 6051.8 * KM_TO_AU, color: 0xe8c56d },
+		  { name: 'Terra',    aAU: 1.000, e: 0.0167, iDeg: 0.0,  period: 365.25,  LDeg: 100.46435, varpiDeg: 102.94719, omegaDeg: 0.0,     radiusAU: 6371.0 * KM_TO_AU, color: 0x4488ff },
+		  { name: 'Marte',    aAU: 1.524, e: 0.0934, iDeg: 1.85, period: 687.0,   LDeg: 355.45332, varpiDeg: 336.04084, omegaDeg: 49.57854, radiusAU: 3389.5 * KM_TO_AU, color: 0xcc4422 },
+		  { name: 'Giove',    aAU: 5.203, e: 0.0485, iDeg: 1.30, period: 4332.6,  LDeg: 34.40438,  varpiDeg: 14.72847, omegaDeg: 100.55615, radiusAU: 69911.0 * KM_TO_AU, color: 0xc88a50 },
+		  { name: 'Saturno',  aAU: 9.537, e: 0.0556, iDeg: 2.49, period: 10759.2, LDeg: 49.94432,  varpiDeg: 92.59887, omegaDeg: 113.71504, radiusAU: 58232.0 * KM_TO_AU, color: 0xd4a84b },
+		  { name: 'Urano',    aAU: 19.19, e: 0.0472, iDeg: 0.77, period: 30688.5, LDeg: 313.23218, varpiDeg: 170.95427, omegaDeg: 74.22988, radiusAU: 25362.0 * KM_TO_AU, color: 0x88ccdd },
+		  { name: 'Nettuno',  aAU: 30.07, e: 0.0086, iDeg: 1.77, period: 60182.0, LDeg: 304.88003, varpiDeg: 44.96476, omegaDeg: 131.72169, radiusAU: 24622.0 * KM_TO_AU, color: 0x4466dd }
 		];
 
         const planets = [];
@@ -1060,20 +1308,17 @@
 			}
 
             // Orbit path (ellipse)
-            const orbitGroup = new THREE.Group();
-            orbitGroup.rotation.x = inclination;
-            scene.add(orbitGroup);
+			const orbitGroup = new THREE.Group(); // niente rotation.x: le rotazioni sono già nei punti
+			scene.add(orbitGroup);
 
-			const orbitCurve = new THREE.EllipseCurve(
-				-c, 0,
-				a, b,
-				0, 2 * Math.PI,
-				false, 0
-			);
-			const orbitPoints = orbitCurve.getPoints(256);
-			const orbitGeo3D = new THREE.BufferGeometry().setFromPoints(
-				orbitPoints.map(p => new THREE.Vector3(p.x, 0, p.y))
-			);
+			const orbitVecs = buildOrbitPoints({
+			  a, b, e: data.e,
+			  inclination,
+			  varpiDeg: data.varpiDeg,
+			  omegaDeg: data.omegaDeg
+			}, 256);
+			const orbitPoints = orbitVecs; // per compatibilità con il codice colori sotto
+			const orbitGeo3D = new THREE.BufferGeometry().setFromPoints(orbitVecs);
 
 			// Vertex colors: arco parziale con fade
 			const orbitColorArray = new Float32Array(orbitPoints.length * 3);
@@ -1097,26 +1342,22 @@
 
             // Store planet info
 			planets.push({
-				mesh,
-				a,
-				b,
-				c,
-				inclination,
+				mesh, a, b, c, e: data.e, inclination,
 				period: data.period,
+				LDeg: data.LDeg, varpiDeg: data.varpiDeg, omegaDeg: data.omegaDeg,
 				name: data.name,
 				texKey: textureKeyMap[data.name],
 				realRadius: data.radiusAU * AU_SCALE, // raggio reale in unità scena
-				phase: Math.random() * Math.PI * 2 // random starting phase
 			});
         });
 		
 		// === DWARF PLANETS ===
 		const dwarfPlanetData = [
-			{ name: 'Cerere',    aAU: 2.77,  e: 0.0758, iDeg: 10.59, period: 1681.63,  radiusAU: 473.0 * KM_TO_AU, color: 0xaaaaaa },
-			{ name: 'Plutone',   aAU: 39.48, e: 0.2488, iDeg: 17.16, period: 90560.0,  radiusAU: 1188.3 * KM_TO_AU, color: 0xc8a882 },
-			{ name: 'Eris',      aAU: 67.67, e: 0.4407, iDeg: 44.04, period: 203830.0, radiusAU: 1163.0 * KM_TO_AU, color: 0xdddddd },
-			{ name: 'Haumea',    aAU: 43.13, e: 0.1912, iDeg: 28.22, period: 103468.0, radiusAU: 816.0 * KM_TO_AU, color: 0xddbbbb },
-			{ name: 'Makemake',  aAU: 45.79, e: 0.1559, iDeg: 28.96, period: 113183.0, radiusAU: 715.0 * KM_TO_AU, color: 0xcc9966 }
+		  { name: 'Cerere',   aAU: 2.77,  e: 0.0758, iDeg: 10.59, period: 1681.63,  LDeg: 95.99,  varpiDeg: 73.6,  omegaDeg: 80.31,  radiusAU: 473.0 * KM_TO_AU,  color: 0xaaaaaa },
+		  { name: 'Plutone',  aAU: 39.48, e: 0.2488, iDeg: 17.16, period: 90560.0,  LDeg: 238.93, varpiDeg: 224.07, omegaDeg: 110.30, radiusAU: 1188.3 * KM_TO_AU, color: 0xc8a882 },
+		  { name: 'Eris',     aAU: 67.67, e: 0.4407, iDeg: 44.04, period: 203830.0, LDeg: 204.16, varpiDeg: 187.15, omegaDeg: 35.95,  radiusAU: 1163.0 * KM_TO_AU, color: 0xdddddd },
+		  { name: 'Haumea',   aAU: 43.13, e: 0.1912, iDeg: 28.22, period: 103468.0, LDeg: 209.07, varpiDeg: 240.20, omegaDeg: 121.90, radiusAU: 816.0 * KM_TO_AU,  color: 0xddbbbb },
+		  { name: 'Makemake', aAU: 45.79, e: 0.1559, iDeg: 28.96, period: 113183.0, LDeg: 165.51, varpiDeg: 294.83, omegaDeg: 79.62,  radiusAU: 715.0 * KM_TO_AU,  color: 0xcc9966 }
 		];
 
 		const dwarfPlanets = [];
@@ -1143,19 +1384,16 @@
 
 			// Orbit path (ellipse) 
 			const orbitGroup = new THREE.Group();
-			orbitGroup.rotation.x = inclination;
 			scene.add(orbitGroup);
 
-			const orbitCurve = new THREE.EllipseCurve(
-				-c, 0,
-				a, b,
-				0, 2 * Math.PI,
-				false, 0
-			);
-			const orbitPoints = orbitCurve.getPoints(256);
-			const orbitGeo3D = new THREE.BufferGeometry().setFromPoints(
-				orbitPoints.map(p => new THREE.Vector3(p.x, 0, p.y))
-			);
+			const orbitVecs = buildOrbitPoints({
+			  a, b, e: data.e,
+			  inclination,
+			  varpiDeg: data.varpiDeg,
+			  omegaDeg: data.omegaDeg
+			}, 256);
+			const orbitPoints = orbitVecs;
+			const orbitGeo3D = new THREE.BufferGeometry().setFromPoints(orbitVecs);
 
 			// Vertex colors: arco parziale con fade
 			const orbitColorArray = new Float32Array(orbitPoints.length * 3);
@@ -1179,16 +1417,12 @@
 
 			// Store dwarf planet info
 			dwarfPlanets.push({
-				mesh,
-				a,
-				b,
-				c,
-				inclination,
+				mesh, a, b, c, e: data.e, inclination,
 				period: data.period,
+				LDeg: data.LDeg, varpiDeg: data.varpiDeg, omegaDeg: data.omegaDeg,
 				name: data.name,
 				texKey: textureKeyMap[data.name],
 				realRadius: data.radiusAU * AU_SCALE,
-				phase: Math.random() * Math.PI * 2
 			});
 		});
 		
@@ -1350,6 +1584,15 @@
         let isPlaying = true;
         let speedMultiplier = 1.0;
         let simulatedDays = 0;
+		const SIM_START_DATE = new Date(); // data odierna
+		const J2000 = new Date(Date.UTC(2000, 0, 1, 12, 0, 0));  // epoca di riferimento
+		const daysFromJ2000 = (SIM_START_DATE.getTime() - J2000.getTime()) / 86400000;
+
+		
+		
+		
+		
+		
 
 		const playBtn = document.getElementById('play-btn');
 		const playIcon = document.getElementById('play-icon');
@@ -1468,6 +1711,21 @@
 		let userInterrupted = false;
 		let trackingMode = 'observe'; // 'observe' = camera fissa che guarda, 'follow' = camera segue l'oggetto
 		let pendingFollowTransition = false; // true quando stiamo animando verso follow dopo un click
+		
+		
+		// === OBSERVE DINAMICO ===
+		let observeAnchorPos = new THREE.Vector3();   // posizione base (ferma) della camera in observe
+		let observeTangentDir = new THREE.Vector3();  // direzione di marcia dell'oggetto lungo l'orbita
+		let observeAngleStart = 0;                     // angolo dell'oggetto al momento dell'aggancio
+		let observeUserZoom = 1.0;                     // fattore di zoom dell'utente (1 = distanza base)
+		let observeOffRadial = 0;
+		let observeOffTangent = 0;
+		let observeOffUp = 0;
+		const OBSERVE_RELEASE = Math.PI * 0.28;        // soglia oltre cui la camera inizia a inseguire
+		const OBSERVE_CHASE_FACTOR = 0.55;             // <1: la camera resta più lenta dell'oggetto
+		const OBSERVE_SMOOTH = 0.04;                   // morbidezza del movimento della camera
+		let observeStartTime = 0;               // istante di aggancio (per il timing delle fasi)
+		const OBSERVE_PHASE12_DURATION = 4.0;   // secondi di camera ferma prima dell'inseguimento
 
 		function getSearchResults(query) {
 			if (!query || query.length === 0) return [];
@@ -1507,6 +1765,82 @@
 			searchStatus.classList.add('visible');
 			setTimeout(() => searchStatus.classList.remove('visible'), duration);
 		}
+		
+		
+		// === GUIDA TURISTICA AI ===
+		const staticDescriptions = {
+		  'Sole': 'La stella al centro del Sistema Solare: contiene il 99,8% della massa totale del sistema.',
+		  'Mercurio': 'Il pianeta più piccolo e più vicino al Sole, con enormi escursioni termiche.',
+		  'Venere': 'Avvolto da una densa atmosfera di CO₂, è il pianeta più caldo del Sistema Solare.',
+		  'Terra': 'L\'unico pianeta conosciuto ad ospitare la vita, con acqua liquida in superficie.',
+		  'Marte': 'Il pianeta rosso, con la montagna più alta del Sistema Solare, l\'Olympus Mons.',
+		  'Giove': 'Il gigante gassoso più grande, celebre per la sua Grande Macchia Rossa.',
+		  'Saturno': 'Famoso per il suo spettacolare sistema di anelli fatti di ghiaccio e roccia.',
+		  'Urano': 'Un gigante ghiacciato che ruota "sdraiato" sul suo asse orbitale.',
+		  'Nettuno': 'Il pianeta più esterno, con i venti più veloci del Sistema Solare.'
+		};
+
+		let narrationSignal = null; // per annullare la narrazione al cambio oggetto
+
+		function buildPrompt(obj) {
+		  let details = `Nome: ${obj.name}.`;
+		  const pd = planetData.find(d => d.name === obj.name)
+				  || dwarfPlanetData.find(d => d.name === obj.name);
+		  const s = satellites.find(x => x.name === obj.name);
+		  if (pd) {
+			details += ` Distanza dal Sole: ${pd.aAU} UA. Raggio: ${(pd.radiusAU / KM_TO_AU).toFixed(0)} km. Periodo orbitale: ${pd.period} giorni.`;
+		  } else if (s) {
+			details += ` Satellite di ${s.parentName}. Periodo orbitale: ${s.period} giorni.`;
+		  } else if (obj.name === 'Sole') {
+			details += ` È la stella centrale del Sistema Solare.`;
+		  }
+		  return `Descrivi in italiano il seguente corpo celeste per un visitatore curioso. Scrivi in modo scorrevole affascinante ed entusiasta. Aggiungi una curiosità \n${details}`;
+		}
+
+		async function narrateObject(obj) {
+		  const statusEl = document.getElementById('ai-status');
+		  const bodyEl = document.getElementById('ai-narration');
+		  const panel = document.getElementById('ai-panel');
+		  panel.classList.add('visible');
+		  panel.classList.add('generating');
+
+		  // AI disattiva → fallback statico, nessuna chiamata a Ollama
+		  if (!AI.enabled) {
+			statusEl.textContent = 'AI offline';
+			bodyEl.textContent = staticDescriptions[obj.name]
+			  || `${obj.name}: descrizione AI non disponibile.`;
+			return;
+		  }
+
+		  // annulla eventuale narrazione precedente ancora in corso
+		  if (narrationSignal) narrationSignal.abort();
+		  narrationSignal = new AbortController();
+
+		  bodyEl.textContent = '';
+		  statusEl.textContent = 'genero…';
+
+		  try {
+			await AI.ask({
+			  system: 'Sei una guida spaziale entusiasta e sintetica. Rispondi in italiano, 2-3 frasi, max 60 parole, senza elenchi.',
+			  prompt: buildPrompt(obj),
+			  stream: true,
+			  signal: narrationSignal.signal,
+			  onChunk: (_piece, full) => { bodyEl.textContent = full; }
+			});
+			panel.classList.remove('generating');
+			statusEl.textContent = 'AI';
+		  } catch (e) {
+			panel.classList.remove('generating');
+			if (e.name === 'AbortError') return; // cambio oggetto: normale
+			console.warn('[AI] narrazione fallita:', e);
+			bodyEl.textContent = staticDescriptions[obj.name] || `${obj.name}.`;
+			statusEl.textContent = 'AI offline';
+		  }
+		}
+		
+		
+		
+		
 		
 		function updateInfoCard(obj) {
 			const panel = document.getElementById('info-panel');
@@ -1576,6 +1910,8 @@
 				periodEl.innerHTML = data.period + '<span class="info-data-unit">giorni</span>';
 				speedEl.innerHTML = data.speed + '<span class="info-data-unit">km/s</span>';
 				panel.classList.add('visible');
+				narrateObject(obj);
+				
 			}
 		}
 		
@@ -1648,14 +1984,26 @@
 				
 				// Camera posizionata: 40% tangente + 70% sopra + 20% radiale (verso esterno)
 				// Questo dà una visuale laterale-alta, l'oggetto scorre davanti in modo fluido
-				const cameraDir = tangentDir.clone().multiplyScalar(0.4)
-					.add(upDir.clone().multiplyScalar(0.7))
-					.add(radialDir.clone().multiplyScalar(0.2))
+				const cameraDir = tangentDir.clone().multiplyScalar(0.7)
+					.add(upDir.clone().multiplyScalar(0.2))
+					.add(radialDir.clone().multiplyScalar(0.7))
 					.normalize();
 				
-				// Distanza maggiore per observe: 3x l'offset normale, così si vede l'arco orbitale
-				const observeDist = offsetDist * 3.0;
+				// Distanza maggiore per observe: 1.3x l'offset normale, così si vede l'arco orbitale
+				const observeDist = offsetDist * 1.3;
 				cameraEndOffset = cameraDir.multiplyScalar(observeDist);
+				
+				// Camera spostata "a sinistra" dell'orbita: sinistra = tangente × up
+				const leftDir = tangentDir.clone().cross(upDir).normalize();
+				cameraEndOffset.add(leftDir.multiplyScalar(observeDist * 0.6));
+
+				// Salva stato per l'observe dinamico
+				observeTangentDir.copy(tangentDir);
+				observeAngleStart = Math.atan2(radialDir.z, radialDir.x);
+				observeUserZoom = 1.0;
+				controls.enableZoom = false; // lo zoom in observe lo gestiamo con observeUserZoom
+				
+				
 			}
 
 			cameraStartPos.copy(camera.position);
@@ -1671,14 +2019,36 @@
 		}
 
 		function stopTracking() {
+			if (!trackingTarget) {
+				trackingIndicator.classList.remove('visible');
+				targetHud.classList.remove('visible');
+				document.getElementById('info-panel').classList.remove('visible');
+				document.getElementById('ai-panel').classList.remove('visible');
+				return;
+			}
+
 			trackingTarget = null;
-			isAnimatingCamera = false;
 			trackingMode = 'observe';
 			pendingFollowTransition = false;
+			isAnimatingCamera = false;
 			trackingIndicator.classList.remove('visible');
 			targetHud.classList.remove('visible');
-			controls.minDistance = 0.005; // ripristina default
 			document.getElementById('info-panel').classList.remove('visible');
+			document.getElementById('ai-panel').classList.remove('visible');
+			if (narrationSignal) narrationSignal.abort();
+
+			// Avvia animazione overview separata
+			window._overviewAnim = {
+				startPos: camera.position.clone(),
+				startTarget: controls.target.clone(),
+				endPos: new THREE.Vector3(0, 18, 22),
+				endTarget: new THREE.Vector3(0, 0, 0),
+				startTime: performance.now(),
+				duration: 2000
+			};
+			controls.enabled = false;
+			controls.minDistance = 0.005;
+			controls.enableZoom = true; // ripristina lo zoom normale di OrbitControls
 		}
 
 		// Easing function (smooth)
@@ -1707,6 +2077,20 @@
 					controls.enabled = true;
 					controls.target.copy(targetPos);
 					controls.update();
+					
+					// Fissa la posizione base della camera per l'observe dinamico
+					observeAnchorPos.copy(camera.position).sub(targetPos);
+					observeStartTime = performance.now() / 1000;
+					
+					// Scomponi l'offset nel frame orbitale ISTANTANEO del pianeta
+					const rad0 = targetPos.clone().normalize();
+					const tan0 = new THREE.Vector3(-rad0.z, 0, rad0.x).normalize();
+					const up0 = new THREE.Vector3(0, 1, 0);
+					observeOffRadial  = observeAnchorPos.dot(rad0);
+					observeOffTangent = observeAnchorPos.dot(tan0);
+					observeOffUp      = observeAnchorPos.dot(up0);
+					
+					
 
 					// Se stavamo transitando verso follow, attiva la modalità follow
 					if (pendingFollowTransition) {
@@ -1725,15 +2109,31 @@
 						controls.minDistance = Math.max(objectRadius * 1.5, 0.0002);
 					}
 				}
+			
 			} else if (trackingMode === 'observe') {
-				// Camera fissa, solo il target (punto di mira) segue l'oggetto
+				// Frame orbitale CORRENTE del pianeta
+				const radNow = targetPos.clone().normalize();
+				const tanNow = new THREE.Vector3(-radNow.z, 0, radNow.x).normalize();
+				const upNow = new THREE.Vector3(0, 1, 0);
+
+				// Ricostruisci l'offset con le componenti locali salvate all'aggancio:
+				// la camera mantiene la stessa geometria relativa al pianeta a QUALSIASI
+				// velocità orbitale, ruotando insieme a lui attorno al Sole.
+				const baseOffset = new THREE.Vector3()
+					.addScaledVector(radNow, observeOffRadial)
+					.addScaledVector(tanNow, observeOffTangent)
+					.addScaledVector(upNow, observeOffUp);
+
+				// Zoom utente (rotella)
+				baseOffset.multiplyScalar(observeUserZoom);
+
+				const desiredPos = targetPos.clone().add(baseOffset);
+				camera.position.lerp(desiredPos, OBSERVE_SMOOTH);
 				controls.target.copy(targetPos);
+				
+				
 			} else if (trackingMode === 'follow') {
 				// Camera si muove con l'oggetto
-				const currentOffset = camera.position.clone().sub(controls.target);
-				controls.target.copy(targetPos);
-				camera.position.copy(targetPos).add(currentOffset);
-
 				let objectRadius = sunRadiusScene;
 				const planetObj = planets.find(p => p.name === trackingTarget.name);
 				const dwarfObj = dwarfPlanets.find(p => p.name === trackingTarget.name);
@@ -1742,8 +2142,23 @@
 				else if (dwarfObj) objectRadius = dwarfObj.realRadius;
 				else if (satObj) objectRadius = satObj.realRadius;
 
+				const currentOffset = camera.position.clone().sub(controls.target);
+				const currentDist = currentOffset.length();
+
+				// Distanza ideale: oggetto ben visibile
+				const idealDist = objectRadius * 4;
+
+				// Se troppo lontana, avvicina gradualmente
+				if (currentDist > idealDist) {
+					const newDist = currentDist + (idealDist - currentDist) * 0.03;
+					currentOffset.normalize().multiplyScalar(newDist);
+				}
+
+				controls.target.copy(targetPos);
+				camera.position.copy(targetPos).add(currentOffset);
+
 				controls.minDistance = Math.max(objectRadius * 1.5, 0.0002);
-			}
+			}	
 		}
 
 		// Event listeners
@@ -1945,10 +2360,12 @@
 							offsetDist * 0.3, offsetDist * 0.4, offsetDist * 0.85
 						);
 					} else {
-						const dirToSun = sunPos.clone().sub(targetPos).normalize();
-						const upOffset = new THREE.Vector3(0, 1, 0);
-						const cameraDir = dirToSun.clone().multiplyScalar(0.85)
-							.add(upOffset.multiplyScalar(0.25))
+						const radialDir = targetPos.clone().normalize();
+						const tangentDir = new THREE.Vector3(-radialDir.z, 0, radialDir.x).normalize();
+						const upDir = new THREE.Vector3(0, 1, 0);
+						const cameraDir = tangentDir.clone().multiplyScalar(0.35)
+							.add(upDir.clone().multiplyScalar(0.5))
+							.add(radialDir.clone().multiplyScalar(0.25))
 							.normalize();
 						cameraEndOffset = cameraDir.multiplyScalar(offsetDist);
 					}
@@ -1970,7 +2387,13 @@
 			}
 		});
 		
-		
+		renderer.domElement.addEventListener('wheel', (e) => {
+			if (trackingTarget && trackingMode === 'observe' && !isAnimatingCamera) {
+				e.preventDefault();
+				const factor = e.deltaY > 0 ? 1.08 : 0.92; // out : in
+				observeUserZoom = THREE.MathUtils.clamp(observeUserZoom * factor, 0.15, 8.0);
+			}
+		}, { passive: false });
 		
 
         function animate() {
@@ -1982,34 +2405,18 @@
                 // 1 real second = 1 simulated day * speedMultiplier
                 const dayStep = delta * speedMultiplier;
                 simulatedDays += dayStep;
+				const totalDays = daysFromJ2000 + simulatedDays;
 
                 // Update planet positions
                 planets.forEach(planet => {
-                    const angle = planet.phase + (simulatedDays / planet.period) * Math.PI * 2;
-
-                    // Kepler ellipse position (approximate with mean anomaly)
-                    const x = planet.a * Math.cos(angle) - planet.c;
-                    const z = planet.b * Math.sin(angle);
-
-                    // Apply inclination
-                    const cosI = Math.cos(planet.inclination);
-                    const sinI = Math.sin(planet.inclination);
-
-					planet.mesh.position.x = x;
-					planet.mesh.position.y = z * sinI;
-					planet.mesh.position.z = z * cosI;
+                    const p = keplerPosition(planet, totalDays);
+					planet.mesh.position.set(p.x, p.y, p.z);
                 });
 				
 				// Update dwarf planet positions
 				dwarfPlanets.forEach(planet => {
-					const angle = planet.phase + (simulatedDays / planet.period) * Math.PI * 2;
-
-					const x = planet.a * Math.cos(angle) - planet.c;
-					const z = planet.b * Math.sin(angle);
-
-					planet.mesh.position.x = x;
-					planet.mesh.position.y = -z * Math.sin(planet.inclination);
-					planet.mesh.position.z = z * Math.cos(planet.inclination);
+					const p = keplerPosition(planet, totalDays);
+					planet.mesh.position.set(p.x, p.y, p.z);
 				});
 				
 				// Update satellite positions
@@ -2054,7 +2461,7 @@
 			const dateMain = document.getElementById('sim-date');
 			const dateSub = document.getElementById('sim-date-sub');
 			if (dateMain && dateSub) {
-				const baseDate = new Date(2026, 4, 25); // 25 maggio 2026
+				const baseDate = SIM_START_DATE;
 				const simDate = new Date(baseDate.getTime() + simulatedDays * 86400000);
 				const options = { day: 'numeric', month: 'long', year: 'numeric' };
 				dateMain.textContent = simDate.toLocaleDateString('it-IT', options);
@@ -2065,6 +2472,28 @@
 			const yearProgress = (simulatedDays % 365.25) / 365.25;
 			document.getElementById('timeline-fill').style.width = (yearProgress * 100) + '%';
             
+			
+			// Animazione ritorno a overview
+			if (window._overviewAnim) {
+				const anim = window._overviewAnim;
+				const elapsed = performance.now() - anim.startTime;
+				const progress = Math.min(elapsed / anim.duration, 1);
+				const eased = easeInOutCubic(progress);
+
+				camera.position.lerpVectors(anim.startPos, anim.endPos, eased);
+				controls.target.lerpVectors(anim.startTarget, anim.endTarget, eased);
+
+				if (progress >= 1) {
+					camera.position.copy(anim.endPos);
+					controls.target.copy(anim.endTarget);
+					controls.enabled = true;
+					controls.update();
+					window._overviewAnim = null;
+				}
+			}
+			
+			
+			
 			
 			// Camera tracking update
             updateCameraTracking();	
@@ -2234,8 +2663,9 @@
 		document.addEventListener('mousemove', resetIdle);
 		document.addEventListener('click', resetIdle);
 		document.addEventListener('keydown', resetIdle);
-		resetIdle();
 		
+		resetIdle();
+		AI.init();
 		animate();
 		
 		
