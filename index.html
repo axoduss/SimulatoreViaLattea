@@ -251,6 +251,34 @@
 		}
 
 		.speed-control span { color: var(--accent); font-weight: 500; }
+		
+		
+		
+		.audio-btn {
+			  width: 32px; height: 32px;
+			  border-radius: 50%;
+			  border: 1px solid var(--border);
+			  background: transparent;
+			  display: flex; align-items: center; justify-content: center;
+			  cursor: pointer;
+			  transition: all 0.25s;
+			  flex-shrink: 0;
+			  color: var(--text-secondary);
+		}
+		.audio-btn:hover {
+			  border-color: var(--accent);
+			  background: var(--accent-dim);
+			  box-shadow: 0 0 15px rgba(125, 211, 252, 0.1);
+			  color: var(--text-primary);
+		}
+		.audio-btn.active {
+			  color: var(--accent);
+			  border-color: var(--accent);
+		}
+		.audio-btn svg { width: 15px; height: 15px; }
+		
+		
+		
 
 		/* === INFO CARD (contextual, on tracking) === */
 		#info-panel {
@@ -614,6 +642,14 @@
 			<div class="timeline-fill" id="timeline-fill"></div>
 		</div>
 		<div class="speed-control" id="speed-control"><span>1</span>x</div>
+		<div class="audio-btn" id="audio-btn" title="Audio narrazione AI">
+			<svg viewBox="0 0 24 24" id="audio-icon">
+			  <!-- icona muto di default -->
+			  <path d="M4 9v6h4l5 5V4L8 9H4z" fill="currentColor"/>
+			  <line x1="17" y1="8" x2="22" y2="13" stroke="currentColor" stroke-width="2"/>
+			  <line x1="22" y1="8" x2="17" y2="13" stroke="currentColor" stroke-width="2"/>
+			</svg>
+		</div>
 	</div>
 
 	<div id="info-panel">
@@ -828,7 +864,61 @@
 		  }
 		};	
 		
-				// Risolve l'equazione di Keplero: M = E - e*sin(E)
+		
+		
+		// === MODULO TTS (Text-To-Speech del browser) ===
+		const TTS = {
+		  enabled: false,
+		  supported: 'speechSynthesis' in window,
+		  voice: null,
+
+		  init() {
+			if (!this.supported) return;
+			const pickVoice = () => {
+			  const voices = speechSynthesis.getVoices();
+			  const italiane = voices.filter(v => v.lang.startsWith('it'));
+			  // preferisci una voce italiana
+			  this.voice =
+				  italiane.find(v => /google/i.test(v.name)) ||
+				  italiane.find(v => v.localService === false) ||
+				  italiane.find(v => /(natural|neural|premium|enhanced)/i.test(v.name)) ||
+				  italiane[0] ||
+				  voices[0] || null;
+			};
+			pickVoice();
+			// le voci possono caricarsi in modo asincrono
+			speechSynthesis.onvoiceschanged = pickVoice;
+		  },
+
+		  speak(text) {
+			if (!this.enabled || !this.supported || !text) return;
+			this.stop(); // interrompe eventuale lettura in corso
+			const u = new SpeechSynthesisUtterance(text);
+			u.lang = 'it-IT';
+			if (this.voice) u.voice = this.voice;
+			u.rate = 0.95;
+			u.pitch = 1.0;
+			speechSynthesis.speak(u);
+		  },
+		  speakChunk(text) {
+			  if (!this.enabled || !this.supported || !text || !text.trim()) return;
+			  const u = new SpeechSynthesisUtterance(text.trim());
+			  u.lang = 'it-IT';
+			  if (this.voice) u.voice = this.voice;
+			  u.rate = 0.95;
+			  u.pitch = 1.0;
+			  speechSynthesis.speak(u); // NON chiama stop(): accoda
+			},
+		  
+
+		  stop() {
+			if (this.supported) speechSynthesis.cancel();
+		  }
+		};
+		TTS.init();
+		
+		
+		// Risolve l'equazione di Keplero: M = E - e*sin(E)
 		function solveKepler(M, e) {
 		  let E = M;
 		  for (let i = 0; i < 8; i++) {
@@ -1738,6 +1828,52 @@
 				return obj.aliases.some(a => a.includes(q));
 			});
 		}
+		
+		
+		// === PARSING SEMANTICO DELLE QUERY (via Ollama) ===
+		async function resolveQuerySemantic(query) {
+			// Nomi esatti disponibili nel catalogo, da passare all'AI come vincolo
+			const catalog = searchableObjects.map(o => o.name);
+
+			const system = `Sei un interprete di comandi per un simulatore 3D del Sistema Solare.
+		L'utente scrive una richiesta in linguaggio naturale. Devi individuare UN SOLO corpo celeste
+		tra quelli disponibili e restituirlo. Rispondi SOLO con JSON valido nel formato:
+		{"target":"<nome esatto dalla lista>","found":true}
+		oppure {"target":null,"found":false} se nessuno corrisponde.
+		Il campo "target" DEVE essere IDENTICO a uno dei nomi della lista fornita, rispettando maiuscole e accenti.
+		Conoscenze utili: la luna più grande di Giove è Ganimede; la più grande di Saturno è Titano;
+		la più grande di Nettuno è Tritone; la luna della Terra è la Luna.
+		Il pianeta più grande è Giove; il più piccolo è Mercurio; il più caldo è Venere;
+		il pianeta rosso è Marte; il gigante con gli anelli è Saturno.`;
+
+			const prompt = `Corpi disponibili (usa ESATTAMENTE questi nomi): ${catalog.join(', ')}.
+		Richiesta utente: "${query}".`;
+
+			const res = await AI.ask({
+				prompt,
+				system,
+				json: true,
+				useCache: true,
+				timeout: 30000
+			});
+
+			// Validazione rigorosa: il target deve esistere davvero nel catalogo
+			if (res && res.found && res.target) {
+				const match = searchableObjects.find(
+					o => o.name.toLowerCase() === String(res.target).toLowerCase()
+				);
+				if (match) return match.name;
+			}
+			return null;
+		}
+		
+		
+		
+		
+		
+		
+		
+		
 
 		function showSuggestions(results) {
 			if (results.length === 0) {
@@ -1812,6 +1948,7 @@
 			statusEl.textContent = 'AI offline';
 			bodyEl.textContent = staticDescriptions[obj.name]
 			  || `${obj.name}: descrizione AI non disponibile.`;
+			TTS.speak(fallback);		
 			return;
 		  }
 
@@ -1823,15 +1960,39 @@
 		  statusEl.textContent = 'genero…';
 
 		  try {
+		   let lastSpokenIndex = 0; // quanti caratteri di 'full' sono già stati letti
+
 			await AI.ask({
 			  system: 'Sei una guida spaziale entusiasta e sintetica. Rispondi in italiano, 2-3 frasi, max 60 parole, senza elenchi.',
 			  prompt: buildPrompt(obj),
 			  stream: true,
 			  signal: narrationSignal.signal,
-			  onChunk: (_piece, full) => { bodyEl.textContent = full; }
+			  onChunk: (_piece, full) => {
+				bodyEl.textContent = full;
+
+				// Legge le frasi complete non ancora pronunciate
+				const pending = full.slice(lastSpokenIndex);
+				// Trova l'ultima punteggiatura di fine frase nel testo pendente
+				const match = pending.match(/[^.!?…]*[.!?…]+/g);
+				if (match) {
+				  const completeSentences = match.join('');
+				  if (completeSentences.trim()) {
+					TTS.speakChunk(completeSentences);
+					lastSpokenIndex += completeSentences.length;
+				  }
+				}
+			  }
 			});
+
 			panel.classList.remove('generating');
 			statusEl.textContent = 'AI';
+
+			// Legge l'eventuale coda residua (testo dopo l'ultima frase completa)
+			const remaining = bodyEl.textContent.slice(lastSpokenIndex);
+			if (remaining.trim()) {
+			  TTS.speakChunk(remaining);
+			}	
+					
 		  } catch (e) {
 			panel.classList.remove('generating');
 			if (e.name === 'AbortError') return; // cambio oggetto: normale
@@ -2041,6 +2202,7 @@
 			document.getElementById('info-panel').classList.remove('visible');
 			document.getElementById('ai-panel').classList.remove('visible');
 			if (narrationSignal) narrationSignal.abort();
+			TTS.stop();
 
 			// Avvia animazione overview separata
 			window._overviewAnim = {
@@ -2183,13 +2345,36 @@
 			showSuggestions(results);
 		});
 
-		searchInput.addEventListener('keydown', (e) => {
+		searchInput.addEventListener('keydown', async (e) => {
 			if (e.key === 'Enter') {
-				const results = getSearchResults(searchInput.value);
+				const query = searchInput.value;
+				const results = getSearchResults(query);
+
+				// 1) Match testuale diretto → comportamento immediato invariato
 				if (results.length > 0) {
 					searchInput.value = results[0].name;
 					searchSuggestions.classList.remove('visible');
 					navigateToObject(results[0].name);
+					return;
+				}
+
+				// 2) Nessun match letterale: se l'AI è attiva, prova l'interpretazione semantica
+				if (AI.enabled) {
+					searchSuggestions.classList.remove('visible');
+					showStatus('🤖 interpreto…', 8000);
+					try {
+						const resolved = await resolveQuerySemantic(query);
+						if (resolved) {
+							searchInput.value = resolved;
+							searchStatus.classList.remove('visible');
+							navigateToObject(resolved);
+						} else {
+							showStatus('⚠ NESSUN RISULTATO');
+						}
+					} catch (err) {
+						console.warn('[AI] parsing query fallito:', err);
+						showStatus('⚠ NESSUN RISULTATO');
+					}
 				} else {
 					showStatus('⚠ NESSUN RISULTATO');
 				}
@@ -2663,6 +2848,47 @@
 			
             composer.render();
         }
+
+
+		// === AUDIO TOGGLE ===
+		const audioBtn = document.getElementById('audio-btn');
+		const audioIcon = document.getElementById('audio-icon');
+
+		function renderAudioIcon() {
+		  if (TTS.enabled) {
+			// icona con onde sonore (audio ON)
+			audioIcon.innerHTML =
+			  '<path d="M4 9v6h4l5 5V4L8 9H4z" fill="currentColor"/>' +
+			  '<path d="M16 8c1.5 1.5 1.5 6.5 0 8" fill="none" stroke="currentColor" stroke-width="2"/>' +
+			  '<path d="M19 5c3 3 3 11 0 14" fill="none" stroke="currentColor" stroke-width="2"/>';
+		  } else {
+			// icona muto (audio OFF)
+			audioIcon.innerHTML =
+			  '<path d="M4 9v6h4l5 5V4L8 9H4z" fill="currentColor"/>' +
+			  '<line x1="17" y1="8" x2="22" y2="13" stroke="currentColor" stroke-width="2"/>' +
+			  '<line x1="22" y1="8" x2="17" y2="13" stroke="currentColor" stroke-width="2"/>';
+		  }
+		}
+
+		audioBtn.addEventListener('click', () => {
+		  if (!TTS.supported) return;
+		  TTS.enabled = !TTS.enabled;
+		  audioBtn.classList.toggle('active', TTS.enabled);
+		  renderAudioIcon();
+
+		  if (TTS.enabled) {
+			// se c'è già del testo nella card AI, leggilo subito
+			const bodyEl = document.getElementById('ai-narration');
+			if (bodyEl && bodyEl.textContent && bodyEl.textContent !== '—') {
+			  TTS.speak(bodyEl.textContent);
+			}
+		  } else {
+			TTS.stop(); // audio off → interrompe subito
+		  }
+		});
+		renderAudioIcon();
+
+
 
 
 	
