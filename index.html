@@ -781,6 +781,9 @@
 			this.updateGlobalUI();
 			return this.enabled;
 		  },
+		  
+		  
+		  
 
 		  // Aggiorna elementi UI globali che dipendono dallo stato AI
 		  updateGlobalUI() {
@@ -864,6 +867,72 @@
 			}
 		  }
 		};	
+		
+		
+		// === CLASSIFICAZIONE INTENTO (navigazione vs domanda) ===
+		async function classifyQuery(query) {
+		  const system = `Classifichi le richieste per un simulatore 3D del Sistema Solare.
+		Rispondi SOLO con JSON valido:
+		{"intent":"navigate"} se l'utente vuole spostarsi/vedere un corpo celeste,
+		{"intent":"question"} se pone una domanda astronomica (es. "quali sono i satelliti di Giove?").`;
+		  const res = await AI.ask({
+			prompt: `Richiesta utente: "${query}".`,
+			system, json: true, useCache: true, timeout: 30000
+		  });
+		  return (res && res.intent) ? res.intent : 'navigate';
+		}
+		
+		
+		// === RISPOSTA A DOMANDE ASTRONOMICHE ===
+		async function answerAstronomyQuestion(query) {
+		  const panel = document.getElementById('ai-panel');
+		  const bodyEl = document.getElementById('ai-narration');
+		  const statusEl = document.getElementById('ai-status');
+		  panel.classList.add('visible');
+		  panel.classList.add('generating');
+		  bodyEl.textContent = '';
+		  statusEl.textContent = 'genero…';
+
+		  // Contesto reale dal catalogo satelliti presente nel simulatore
+		  const satPerPianeta = Object.entries(satelliteData)
+			.map(([pianeta, sats]) => `${pianeta}: ${sats.map(s => s.name).join(', ')}`);
+		  satPerPianeta.push(`Plutone: ${satelliteDataPlutone.map(s => s.name).join(', ')}`);
+		  const contesto = `Satelliti presenti nel simulatore — ${satPerPianeta.join('; ')}.`;
+
+		  if (narrationSignal) narrationSignal.abort();
+		  narrationSignal = new AbortController();
+
+		  try {
+			let lastSpokenIndex = 0;
+			await AI.ask({
+			  system: 'Sei una guida astronomica sintetica. Rispondi in italiano, chiaro e conciso, senza elenchi puntati.',
+			  prompt: `${contesto}\nDomanda: "${query}". Usa i dati forniti quando pertinenti.`,
+			  stream: true,
+			  signal: narrationSignal.signal,
+			  onChunk: (_piece, full) => {
+				const clean = sanitizeLLM(full);
+				bodyEl.textContent = clean;
+				const pending = clean.slice(lastSpokenIndex);
+				const match = pending.match(/[^.!?…]*[.!?…]+/g);
+				if (match) {
+				  const complete = match.join('');
+				  if (complete.trim()) { TTS.speakChunk(complete); lastSpokenIndex += complete.length; }
+				}
+			  }
+			});
+			panel.classList.remove('generating');
+			statusEl.textContent = 'AI';
+			const remaining = bodyEl.textContent.slice(lastSpokenIndex);
+			if (remaining.trim()) TTS.speakChunk(remaining);
+		  } catch (e) {
+			panel.classList.remove('generating');
+			if (e.name === 'AbortError') return;
+			console.warn('[AI] risposta astronomica fallita:', e);
+			statusEl.textContent = 'AI offline';
+		  }
+		}
+		
+		
 		
 		
 		
@@ -1859,13 +1928,6 @@
 			return null;
 		}
 		
-		
-		
-		
-		
-		
-		
-		
 
 		function showSuggestions(results) {
 			if (results.length === 0) {
@@ -2361,25 +2423,32 @@
 					return;
 				}
 
-				// 2) Nessun match letterale: se l'AI è attiva, prova l'interpretazione semantica
+				// 2) Nessun match letterale: se l'AI è attiva, decidi se è domanda o navigazione
 				if (AI.enabled) {
-					searchSuggestions.classList.remove('visible');
-					showStatus('🤖 interpreto…', 8000);
-					try {
-						const resolved = await resolveQuerySemantic(query);
-						if (resolved) {
-							searchInput.value = resolved;
-							searchStatus.classList.remove('visible');
-							navigateToObject(resolved);
-						} else {
-							showStatus('⚠ NESSUN RISULTATO');
-						}
-					} catch (err) {
-						console.warn('[AI] parsing query fallito:', err);
+				  searchSuggestions.classList.remove('visible');
+				  showStatus('🤖 interpreto…', 8000);
+				  try {
+					const intent = await classifyQuery(query);
+
+					if (intent === 'question') {
+					  searchStatus.classList.remove('visible');
+					  await answerAstronomyQuestion(query);   // apre il pannello Guida AI con la risposta
+					} else {
+					  const resolved = await resolveQuerySemantic(query);
+					  if (resolved) {
+						searchInput.value = resolved;
+						searchStatus.classList.remove('visible');
+						navigateToObject(resolved);
+					  } else {
 						showStatus('⚠ NESSUN RISULTATO');
+					  }
 					}
-				} else {
+				  } catch (err) {
+					console.warn('[AI] interpretazione query fallita:', err);
 					showStatus('⚠ NESSUN RISULTATO');
+				  }
+				} else {
+				  showStatus('⚠ NESSUN RISULTATO');
 				}
 			}
 			if (e.key === 'Escape') {
