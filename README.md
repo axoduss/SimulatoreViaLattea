@@ -21,6 +21,13 @@ An interactive, real-time 3D simulation of our Solar System built entirely with 
 - Accurate semi-major axes scaled to scene units (1 AU = 6.5 units)
 - Orbital periods proportional to real data
 - Satellites orbit their parent bodies in real-time
+- **Kepler's Equation** — accurately solved to calculate real heliocentric positions in the ecliptic plane.
+
+### AI & Smart Features
+- **AI Tourist Guide** — powered by Ollama (`gemma4:e4b`), generates dynamic, enthusiastic descriptions in Italian for selected celestial bodies.
+- **Text-To-Speech (TTS)** — reads the AI-generated descriptions aloud.
+- **Semantic Search** — natural language query interpretation (e.g., "il pianeta rosso") alongside standard autocomplete.
+
 
 ### Visual & Technical
 - **Dynamic Scaling** — objects maintain a minimum pixel size on screen regardless of distance, preventing them from disappearing when zoomed out
@@ -45,6 +52,7 @@ An interactive, real-time 3D simulation of our Solar System built entirely with 
 ### Prerequisites
 - A modern web browser (Chrome, Firefox, Edge, Safari)
 - A local HTTP server (required for texture loading due to CORS)
+- **For AI features:** A local [Ollama](https://ollama.com/) server running on port 11434 with the `gemma4:e4b` model installed.
 
 ### Quick Start
 
