@@ -595,7 +595,7 @@
 		  font-size: 12px; font-weight: 300; line-height: 1.6;
 		  color: var(--text-primary);
 		}
-		<!-- body.idle #ai-panel:not(.generating) { opacity: 0 !important; pointer-events: none; } -->
+		/* body.idle #ai-panel:not(.generating) { opacity: 0 !important; pointer-events: none; } */
 			
 		
 		
@@ -845,7 +845,8 @@
 					try {
 					  const j = JSON.parse(line);
 					  if (j.response) {
-						full += j.response;
+						let cleanChunk = j.response.replace(/<\/?backspace>|<\|.*?\|>/g, '');
+						full += cleanChunk;
 						if (onChunk) onChunk(j.response, full);
 					  }
 					} catch (_) { /* riga parziale */ }
