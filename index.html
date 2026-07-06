@@ -1564,15 +1564,6 @@
 			{ name: 'Caronte', aAU: 19591 * KM_TO_AU, e: 0.0002, iDeg: 0.08, period: 6.387, radiusAU: 606.0 * KM_TO_AU, color: 0x999988 }
 		];
 
-		// Scale factor: convert km orbital radius to scene units
-
-		// Scala reale: km -> scene units (stessa scala dei pianeti)
-		// 1 AU = 149,597,870.7 km = AU_SCALE scene units
-		const SATELLITE_KM_TO_SCENE = AU_SCALE / 149597870.7;
-
-		// Scala unica: km -> scene units = km * KM_TO_AU * AU_SCALE
-		const SATELLITE_ORBIT_SCALE_UNIFIED = KM_TO_AU * AU_SCALE;
-
 		const satellites = [];
 		const satelliteGenericTexture = textures.asteroid.low;
 
@@ -1921,6 +1912,16 @@
 		};
 
 		let narrationSignal = null; // per annullare la narrazione al cambio oggetto
+		
+		
+		function sanitizeLLM(text) {
+			return text
+				.replace(/<\/?(?:backspace|eos|bos|pad|unk|end_of_turn|start_of_turn|s)>/gi, '')
+				.replace(/<\|[^|>]*\|>/g, '')   // token tipo <|...|>
+				.replace(/<[^>\n]{1,40}>/g, '') // tag brevi residui
+				.replace(/[ \t]{2,}/g, ' ');
+		}
+		
 
 		function buildPrompt(obj) {
 		  let details = `Nome: ${obj.name}.`;
@@ -1947,9 +1948,9 @@
 		  // AI disattiva → fallback statico, nessuna chiamata a Ollama
 		  if (!AI.enabled) {
 			statusEl.textContent = 'AI offline';
-			bodyEl.textContent = staticDescriptions[obj.name]
-			  || `${obj.name}: descrizione AI non disponibile.`;
-			TTS.speak(fallback);		
+			const fallback = staticDescriptions[obj.name] || `${obj.name}: descrizione AI non disponibile.`;
+			bodyEl.textContent = fallback;
+			TTS.speak(fallback);
 			return;
 		  }
 
@@ -1969,10 +1970,11 @@
 			  stream: true,
 			  signal: narrationSignal.signal,
 			  onChunk: (_piece, full) => {
-				bodyEl.textContent = full;
+			    const clean = sanitizeLLM(full);
+				bodyEl.textContent = clean;
 
 				// Legge le frasi complete non ancora pronunciate
-				const pending = full.slice(lastSpokenIndex);
+				const pending = clean.slice(lastSpokenIndex);
 				// Trova l'ultima punteggiatura di fine frase nel testo pendente
 				const match = pending.match(/[^.!?…]*[.!?…]+/g);
 				if (match) {
@@ -2416,8 +2418,7 @@
 		// === TARGET HUD SYSTEM ===
 		const targetHud = document.getElementById('target-hud');
 		const hudLabel = document.getElementById('hud-label');
-		const hudDistance = document.getElementById('hud-distance');
-
+	
 		function updateTargetHUD() {
 			if (!trackingTarget) {
 				targetHud.classList.remove('visible');
