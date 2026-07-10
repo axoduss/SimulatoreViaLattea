@@ -43,7 +43,7 @@
 			  clearTimeout(t);
 			  this.enabled = res.ok;
 			  if (this.enabled) {
-				// verifica che il modello richiesto sia presente
+				// opzionale: verifica che il modello richiesto sia presente
 				const data = await res.json();
 				const models = (data.models || []).map(m => m.name);
 				const found = models.some(n => n.startsWith(this.model));
@@ -59,6 +59,8 @@
 			this.updateGlobalUI();
 			return this.enabled;
 		  },
+		  
+		  
 		  
 
 		  // Aggiorna elementi UI globali che dipendono dallo stato AI
@@ -80,7 +82,7 @@
 			  onChunk = null,
 			  useCache = false,
 			  timeout = 200000,
-			  signal = null,        // AbortSignal esterno
+			  signal = null,        // AbortSignal esterno (es. per annullare al cambio oggetto)
 			} = options;
 
 			// Cache: solo per risposte non-stream
@@ -98,10 +100,9 @@
 			};
 
 			const controller = new AbortController();
-			const onAbort = () => controller.abort();
-			const t = setTimeout(onAbort, timeout);
+			const t = setTimeout(() => controller.abort(), timeout);
 			// se arriva un abort esterno, propaghiamo
-			if (signal) signal.addEventListener('abort', onAbort);
+			if (signal) signal.addEventListener('abort', () => controller.abort());
 
 			try {
 			  const res = await fetch(`${this.url}/api/generate`, {
@@ -116,65 +117,37 @@
 				const reader = res.body.getReader();
 				const decoder = new TextDecoder();
 				let full = '';
-				let buffer = '';
 				while (true) {
 				  const { done, value } = await reader.read();
-				  if (done) {
-						// Elabora eventuali dati rimasti nel buffer alla fine
-						if (buffer.trim()) {
-							try {
-								const j = JSON.parse(buffer);
-								if (j.response) {
-									let cleanChunk = j.response.replace(/<\/?backspace>|<\|.*?\|>/g, '');
-									full += cleanChunk;
-									if (onChunk) onChunk(j.response, full);
-								}
-							} catch (_) {}
-						}
-						break;
-					}
-					
-					buffer += decoder.decode(value, { stream: true });
-					const lines = buffer.split('\n');
-					buffer = lines.pop(); // <-- Mantiene l'ultima riga (incompleta) nel buffer
-					
-					for (const line of lines) {
-						if (!line.trim()) continue;
-						try {
-							const j = JSON.parse(line);
-							if (j.response) {
-								let cleanChunk = j.response.replace(/<\/?backspace>|<\|.*?\|>/g, '');
-								full += cleanChunk;
-								if (onChunk) onChunk(j.response, full);
-							}
-						} catch (_) { /* riga parziale o malformata */ }
-					}
+				  if (done) break;
+				  const chunk = decoder.decode(value, { stream: true });
+				  for (const line of chunk.split('\n')) {
+					if (!line.trim()) continue;
+					try {
+					  const j = JSON.parse(line);
+					  if (j.response) {
+						let cleanChunk = j.response.replace(/<\/?backspace>|<\|.*?\|>/g, '');
+						full += cleanChunk;
+						if (onChunk) onChunk(j.response, full);
+					  }
+					} catch (_) { /* riga parziale */ }
+				  }
 				}
 				return full;
 			  } else {
 				const data = await res.json();
-					let out;
-					if (json) {
-						let raw = data.response;
-						// Rimuovi eventuali blocchi markdown ```json ... ```
-						const match = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-						if (match) raw = match[1];
-						out = JSON.parse(raw.trim());
-					} else {
-						out = data.response;
-					}
-					if (useCache) this.cache.set(cacheKey, out);
-					return out;
+				const out = json ? JSON.parse(data.response) : data.response;
+				if (useCache) this.cache.set(cacheKey, out);
+				return out;
 			  }
 			} finally {
 			  clearTimeout(t);
-			  if (signal) signal.removeEventListener('abort', onAbort);
 			}
 		  }
 		};	
 		
 		
-		// === CLASSIFICAZIONE INTENTO  ===
+		// === CLASSIFICAZIONE INTENTO (navigazione vs domanda) ===
 		async function classifyQuery(query) {
 		  const system = `Classifichi le richieste per un simulatore 3D del Sistema Solare.
 		Rispondi SOLO con JSON valido:
@@ -182,7 +155,7 @@
 		{"intent":"question"} se pone una domanda astronomica (es. "quali sono i satelliti di Giove?").`;
 		  const res = await AI.ask({
 			prompt: `Richiesta utente: "${query}".`,
-			system, json: true, useCache: true, timeout: 100000
+			system, json: true, useCache: true, timeout: 30000
 		  });
 		  return (res && res.intent) ? res.intent : 'navigate';
 		}
@@ -204,10 +177,7 @@
 		  satPerPianeta.push(`Plutone: ${satelliteDataPlutone.map(s => s.name).join(', ')}`);
 		  const contesto = `Satelliti presenti nel simulatore — ${satPerPianeta.join('; ')}.`;
 
-		  if (narrationSignal) {
-			narrationSignal.abort();
-			TTS.stop();
-		  }
+		  if (narrationSignal) narrationSignal.abort();
 		  narrationSignal = new AbortController();
 
 		  try {
@@ -239,7 +209,11 @@
 			statusEl.textContent = 'AI offline';
 		  }
 		}
-			
+		
+		
+		
+		
+		
 		// === MODULO TTS (Text-To-Speech del browser) ===
 		const TTS = {
 		  enabled: false,
@@ -1078,7 +1052,7 @@
 			const ratio = (e.clientX - rect.left) / rect.width;
 			// Permette di saltare avanti/indietro nel tempo simulato
 			// Mappiamo 0-100% su 0-365 giorni (un anno)
-			simulatedDays = ratio * 365.25;
+			simulatedDays = ratio * 365.25 * speedMultiplier;
 		});
 		
 
@@ -1321,10 +1295,7 @@
 		  }
 
 		  // annulla eventuale narrazione precedente ancora in corso
-		  if (narrationSignal) {
-				narrationSignal.abort();
-				TTS.stop();
-		  }
+		  if (narrationSignal) narrationSignal.abort();
 		  narrationSignal = new AbortController();
 
 		  bodyEl.textContent = '';
@@ -1598,19 +1569,17 @@
 		// Update camera tracking (called in animate loop)
 		function updateCameraTracking(delta) {
 			if (!trackingTarget) return;
-
 			const targetPos = trackingTarget.getPosition();
-
+			
 			if (isAnimatingCamera) {
 				controls.enabled = false;
 				const elapsed = performance.now() - cameraAnimStart;
 				const progress = Math.min(elapsed / cameraAnimDuration, 1);
 				const eased = easeInOutCubic(progress);
-
 				const destination = targetPos.clone().add(cameraEndOffset);
 				camera.position.lerpVectors(cameraStartPos, destination, eased);
 				controls.target.copy(targetPos);
-
+				
 				if (progress >= 1) {
 					isAnimatingCamera = false;
 					controls.enabled = true;
@@ -1628,18 +1597,14 @@
 					observeOffRadial  = observeAnchorPos.dot(rad0);
 					observeOffTangent = observeAnchorPos.dot(tan0);
 					observeOffUp      = observeAnchorPos.dot(up0);
-					
 					observeFixedPos.copy(camera.position);   // camera ferma qui durante il transito
 					observePhase = 'TRANSIT';
 					
-					
-
 					// Se stavamo transitando verso follow, attiva la modalità follow
 					if (pendingFollowTransition) {
 						pendingFollowTransition = false;
 						trackingMode = 'follow';
 						trackingName.textContent = trackingTarget.name;
-
 						let objectRadius = sunRadiusScene;
 						const planetObj = planets.find(p => p.name === trackingTarget.name);
 						const dwarfObj = dwarfPlanets.find(p => p.name === trackingTarget.name);
@@ -1647,25 +1612,22 @@
 						if (planetObj) objectRadius = planetObj.realRadius;
 						else if (dwarfObj) objectRadius = dwarfObj.realRadius;
 						else if (satObj) objectRadius = satObj.realRadius;
-
 						controls.minDistance = Math.max(objectRadius * 1.5, 0.0002);
 					}
 				}
-			
 			} else if (trackingMode === 'observe') {
+				  // MODALITÀ CINEMATOGRAFICA (Transito e Inseguimento)
 				  const speed = isPlaying ? Math.max(1, speedMultiplier) : 1;
 				  const t = 1 - Math.pow(1 - OBSERVE_SMOOTH, delta * 60 * speed);
 				  const s = THREE.MathUtils.clamp(t, 0, 1);
-
 				  const distToPlanet = camera.position.distanceTo(targetPos);
-
+				  
 				  if (observePhase === 'TRANSIT') {
 					// FASE 1: camera FERMA nel punto di ripresa; segue solo lo SGUARDO.
 					// Il pianeta attraversa l'inquadratura (da un lato all'altro).
-					const fixed = observeFixedPos.clone().multiplyScalar(observeUserZoom > 0 ? 1 : 1);
-					camera.position.lerp(observeFixedPos, s * 0.5); // resta ancorata, arrivo morbido
-					controls.target.lerp(targetPos, s);             // gira solo verso il pianeta
-
+					camera.position.lerp(observeFixedPos, s * 0.5); 
+					controls.target.lerp(targetPos, s);             
+					
 					// Quando il pianeta si è allontanato oltre soglia -> passa a CHASE
 					if (distToPlanet > chaseDist) {
 					  observePhase = 'CHASE';
@@ -1679,11 +1641,8 @@
 					camera.position.lerp(desiredPos, s);
 					controls.target.lerp(targetPos, s);
 				  }
-
-				
-				
 			} else if (trackingMode === 'follow') {
-				// Camera si muove con l'oggetto
+				// MODALITÀ FISSA (Camera si muove con l'oggetto, lo tiene fisso a schermo)
 				let objectRadius = sunRadiusScene;
 				const planetObj = planets.find(p => p.name === trackingTarget.name);
 				const dwarfObj = dwarfPlanets.find(p => p.name === trackingTarget.name);
@@ -1691,25 +1650,22 @@
 				if (planetObj) objectRadius = planetObj.realRadius;
 				else if (dwarfObj) objectRadius = dwarfObj.realRadius;
 				else if (satObj) objectRadius = satObj.realRadius;
-
+				
 				const currentOffset = camera.position.clone().sub(controls.target);
 				const currentDist = currentOffset.length();
-
+				
 				// Distanza ideale: oggetto ben visibile
 				const idealDist = objectRadius * 4;
-
 				// Se troppo lontana, avvicina gradualmente
 				if (currentDist > idealDist) {
 					const newDist = currentDist + (idealDist - currentDist) * 0.03;
 					currentOffset.normalize().multiplyScalar(newDist);
 				}
-
 				controls.target.copy(targetPos);
 				camera.position.copy(targetPos).add(currentOffset);
-
 				controls.minDistance = Math.max(objectRadius * 1.5, 0.0002);
 			}	
-		}
+	}
 
 		// Event listeners
 		searchInput.addEventListener('input', (e) => {
@@ -1717,11 +1673,8 @@
 			showSuggestions(results);
 		});
 
-		let isQueryProcessing = false;
 		searchInput.addEventListener('keydown', async (e) => {
 			if (e.key === 'Enter') {
-				
-				if (isQueryProcessing) return;
 				const query = searchInput.value;
 				const results = getSearchResults(query);
 
@@ -1735,7 +1688,6 @@
 
 				// 2) Nessun match letterale: se l'AI è attiva, decidi se è domanda o navigazione
 				if (AI.enabled) {
-				  isQueryProcessing = true;
 				  searchSuggestions.classList.remove('visible');
 				  showStatus('🤖 interpreto…', 8000);
 				  try {
@@ -1757,8 +1709,6 @@
 				  } catch (err) {
 					console.warn('[AI] interpretazione query fallita:', err);
 					showStatus('⚠ NESSUN RISULTATO');
-				  } finally {
-						isQueryProcessing = false; 
 				  }
 				} else {
 				  showStatus('⚠ NESSUN RISULTATO');
@@ -2290,343 +2240,338 @@
 		
 		
 		// ============================================================
-		// MODULO GAME — Escape Room spaziale (IIFE con stato privato)
-		// ============================================================
-		const Game = (() => {
-		  const STORAGE_KEY = 'escapeGame:run';
-		  const KEY_SEED = 'EscapeGame';
+// MODULO GAME — Escape Room spaziale (IIFE con stato privato)
+// ============================================================
+const Game = (() => {
+  const STORAGE_KEY = 'escapeGame:run';
+  const KEY_SEED = 'FastwebAIWork-EscapeGame';
 
-		  // --- stato PRIVATO (non accessibile da window/Game.) ---
-		  let _run = null;      // struttura completa con dati sensibili
-		  let _mode = 'sim';    // 'sim' | 'game'
-		  let _busy = false;
-		  let _arriveHook = null; // callback quando la camera arriva alla tappa
+  // --- stato PRIVATO (non accessibile da window/Game.) ---
+  let _run = null;      // struttura completa con dati sensibili
+  let _mode = 'sim';    // 'sim' | 'game'
+  let _busy = false;
+  let _arriveHook = null; // callback quando la camera arriva alla tappa
 
-		  // ---- offuscamento Base64 + XOR (deterrente per localStorage) ----
-		  function _xor(str, key) {
-			let out = '';
-			for (let i = 0; i < str.length; i++)
-			  out += String.fromCharCode(str.charCodeAt(i) ^ key.charCodeAt(i % key.length));
-			return out;
-		  }
-		  function _obf(obj, id) {
-			const jsonStr = JSON.stringify(obj);
-			const uriEncoded = encodeURIComponent(jsonStr); // Prima rendi tutto ASCII
-			const xored = _xor(uriEncoded, KEY_SEED + id); // Poi fai XOR (sicuro su ASCII)
-			return btoa(xored);
-		  }
-		  function _deobf(b64, id) {
-			try { 
-				const xored = atob(b64);
-				const uriEncoded = _xor(xored, KEY_SEED + id);
-				return JSON.parse(decodeURIComponent(uriEncoded)); // Decodifica alla fine
-			} catch (_) { return null; }
-		  }
-		  function _persist() {
-			if (!_run) return;
-			// id in chiaro come prefisso (serve per rileggere), payload offuscato
-			try { localStorage.setItem(STORAGE_KEY, _run.id + '|' + _obf(_run, _run.id)); } catch (_) {}
-		  }
-		  function _load() {
-			try {
-			  const raw = localStorage.getItem(STORAGE_KEY);
-			  if (!raw) return null;
-			  const sep = raw.indexOf('|');
-			  if (sep === -1) return null;
-			  const id = raw.slice(0, sep);
-			  return _deobf(raw.slice(sep + 1), id);
-			} catch (_) { return null; }
-		  }
-		  function _clear() { try { localStorage.removeItem(STORAGE_KEY); } catch (_) {} }
+  // ---- offuscamento Base64 + XOR (deterrente per localStorage) ----
+  function _xor(str, key) {
+    let out = '';
+    for (let i = 0; i < str.length; i++)
+      out += String.fromCharCode(str.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+    return out;
+  }
+  function _obf(obj, id) {
+    return btoa(unescape(encodeURIComponent(_xor(JSON.stringify(obj), KEY_SEED + id))));
+  }
+  function _deobf(b64, id) {
+    try { return JSON.parse(_xor(decodeURIComponent(escape(atob(b64))), KEY_SEED + id)); }
+    catch (_) { return null; }
+  }
+  function _persist() {
+    if (!_run) return;
+    // id in chiaro come prefisso (serve per rileggere), payload offuscato
+    try { localStorage.setItem(STORAGE_KEY, _run.id + '|' + _obf(_run, _run.id)); } catch (_) {}
+  }
+  function _load() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      const sep = raw.indexOf('|');
+      if (sep === -1) return null;
+      const id = raw.slice(0, sep);
+      return _deobf(raw.slice(sep + 1), id);
+    } catch (_) { return null; }
+  }
+  function _clear() { try { localStorage.removeItem(STORAGE_KEY); } catch (_) {} }
 
-		  // ---- riferimenti UI ----
-		  const el = {};
-		  function _cacheEls() {
-			el.toggle     = document.getElementById('game-toggle');
-			el.panel      = document.getElementById('game-panel');
-			el.title      = document.getElementById('game-title');
-			el.status     = document.getElementById('game-status');
-			el.body       = document.getElementById('game-body');
-			el.components = document.getElementById('game-components');
-			el.inputRow   = document.getElementById('game-input-row');
-			el.answer     = document.getElementById('game-answer');
-			el.submit     = document.getElementById('game-submit');
-		  }
-		  function setStatus(t) { el.status.textContent = t || ''; }
-		  function setBody(t) { el.body.textContent = t; }
-		  function showInput(show) { el.inputRow.style.display = show ? 'flex' : 'none'; }
-		  function renderComponents() {
-			if (!_run) { el.components.innerHTML = ''; return; }
-			el.components.innerHTML = _run.tappe
-			  .filter(t => t.risolta && t.componenteNome)
-			  .map(t => `<span class="game-chip">🔧 ${t.componenteNome}</span>`)
-			  .join('');
-		  }
+  // ---- riferimenti UI ----
+  const el = {};
+  function _cacheEls() {
+    el.toggle     = document.getElementById('game-toggle');
+    el.panel      = document.getElementById('game-panel');
+    el.title      = document.getElementById('game-title');
+    el.status     = document.getElementById('game-status');
+    el.body       = document.getElementById('game-body');
+    el.components = document.getElementById('game-components');
+    el.inputRow   = document.getElementById('game-input-row');
+    el.answer     = document.getElementById('game-answer');
+    el.submit     = document.getElementById('game-submit');
+  }
+  function setStatus(t) { el.status.textContent = t || ''; }
+  function setBody(t) { el.body.textContent = t; }
+  function showInput(show) { el.inputRow.style.display = show ? 'flex' : 'none'; }
+  function renderComponents() {
+    if (!_run) { el.components.innerHTML = ''; return; }
+    el.components.innerHTML = _run.tappe
+      .filter(t => t.risolta && t.componenteNome)
+      .map(t => `<span class="game-chip">🔧 ${t.componenteNome}</span>`)
+      .join('');
+  }
 
-		  // ---- catalogo nomi reali (vincolo per l'AI) ----
-		  function catalogNames() { return searchableObjects.map(o => o.name); }
-		  const _existsInCatalog = n =>
-			searchableObjects.some(o => o.name.toLowerCase() === String(n).toLowerCase());
-		  const _canonName = n => {
-			const m = searchableObjects.find(o => o.name.toLowerCase() === String(n).toLowerCase());
-			return m ? m.name : null;
-		  };
+  // ---- catalogo nomi reali (vincolo per l'AI) ----
+  function catalogNames() { return searchableObjects.map(o => o.name); }
+  const _existsInCatalog = n =>
+    searchableObjects.some(o => o.name.toLowerCase() === String(n).toLowerCase());
+  const _canonName = n => {
+    const m = searchableObjects.find(o => o.name.toLowerCase() === String(n).toLowerCase());
+    return m ? m.name : null;
+  };
 
-		  // ============ CHIAMATA A: struttura base ============
-		  async function generateRun() {
-			const nTappe = 5 + Math.floor(Math.random() * 4); // 5..8 (rand JS, non AI)
-			const nomi = catalogNames();
-			const system =
-			  'Sei il generatore di un gioco escape-room spaziale. Rispondi SOLO con JSON valido, in ITALIANO. ' +
-			  'Inventa una fuga dalla Terra verso un corpo celeste. Ogni tappa DEVE usare un nome ESATTO ' +
-			  'dalla lista fornita. Accetta licenza narrativa (mete anche irraggiungibili nella realtà).';
-			const prompt =
-			  `Corpi disponibili (usa ESATTAMENTE questi nomi): ${nomi.join(', ')}.\n` +
-			  `Genera una missione con ESATTAMENTE ${nTappe} tappe intermedie, tutte DIVERSE tra loro, ` +
-			  `più una destinazione finale (scelta dalla lista, diversa dalle tappe e diversa dalla Terra).\n` +
-			  `Formato JSON:\n` +
-			  `{"titolo":"...","catastrofe":"...","narrativaIniziale":"3-4 frasi",` +
-			  `"destinazione":{"oggetto":"<nome esatto>","motivo":"..."},` +
-			  `"tappe":[{"ordine":1,"oggetto":"<nome esatto>","tipo":"pianeta|luna|asteroide|stella|nano|deepsky"}]}`;
+  // ============ CHIAMATA A: struttura base ============
+  async function generateRun() {
+    const nTappe = 5 + Math.floor(Math.random() * 4); // 5..8 (rand JS, non AI)
+    const nomi = catalogNames();
+    const system =
+      'Sei il generatore di un gioco escape-room spaziale. Rispondi SOLO con JSON valido, in ITALIANO. ' +
+      'Inventa una fuga dalla Terra verso un corpo celeste. Ogni tappa DEVE usare un nome ESATTO ' +
+      'dalla lista fornita. Accetta licenza narrativa (mete anche irraggiungibili nella realtà).';
+    const prompt =
+      `Corpi disponibili (usa ESATTAMENTE questi nomi): ${nomi.join(', ')}.\n` +
+      `Genera una missione con ESATTAMENTE ${nTappe} tappe intermedie, tutte DIVERSE tra loro, ` +
+      `più una destinazione finale (scelta dalla lista, diversa dalle tappe e diversa dalla Terra).\n` +
+      `Formato JSON:\n` +
+      `{"titolo":"...","catastrofe":"...","narrativaIniziale":"3-4 frasi",` +
+      `"destinazione":{"oggetto":"<nome esatto>","motivo":"..."},` +
+      `"tappe":[{"ordine":1,"oggetto":"<nome esatto>","tipo":"pianeta|luna|asteroide|stella|nano|deepsky"}]}`;
 
-			const res = await AI.ask({ prompt, system, json: true, useCache: false, timeout: 120000 });
+    const res = await AI.ask({ prompt, system, json: true, useCache: false, timeout: 120000 });
 
-			// --- validazione rigorosa ---
-			if (!res || !Array.isArray(res.tappe) || !res.destinazione) throw new Error('GEN_INVALID');
-			const tappe = res.tappe
-			  .filter(t => t && _existsInCatalog(t.oggetto))
-			  .map((t, i) => ({
-				ordine: i + 1,
-				oggetto: _canonName(t.oggetto),
-				tipo: t.tipo || 'pianeta',
-				raffinata: false,
-				risolta: false,
-				componenteNome: null,
-				tentativi: 0,
-				// campi sensibili (popolati in fase B, tenuti solo qui in closure)
-				_sfida: null,       // { tipo, testo, indizi[], rispostaAttesa, criterio }
-				_indizeUsati: 0,
-			  }));
-			if (tappe.length < 4) throw new Error('GEN_TOO_FEW_STAGES');
+    // --- validazione rigorosa ---
+    if (!res || !Array.isArray(res.tappe) || !res.destinazione) throw new Error('GEN_INVALID');
+    const tappe = res.tappe
+      .filter(t => t && _existsInCatalog(t.oggetto))
+      .map((t, i) => ({
+        ordine: i + 1,
+        oggetto: _canonName(t.oggetto),
+        tipo: t.tipo || 'pianeta',
+        raffinata: false,
+        risolta: false,
+        componenteNome: null,
+        tentativi: 0,
+        // campi sensibili (popolati in fase B, tenuti solo qui in closure)
+        _sfida: null,       // { tipo, testo, indizi[], rispostaAttesa, criterio }
+        _indizeUsati: 0,
+      }));
+    if (tappe.length < 4) throw new Error('GEN_TOO_FEW_STAGES');
 
-			return {
-			  id: 'run_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
-			  titolo: res.titolo || 'Fuga dalla Terra',
-			  catastrofe: res.catastrofe || '',
-			  narrativaIniziale: res.narrativaIniziale || '',
-			  destinazione: {
-				oggetto: _canonName(res.destinazione.oggetto) || tappe[tappe.length - 1].oggetto,
-				motivo: res.destinazione.motivo || '',
-			  },
-			  tappe,
-			  corrente: 0,      // indice della tappa attuale
-			  completata: false,
-			};
-		  }
+    return {
+      id: 'run_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+      titolo: res.titolo || 'Fuga dalla Terra',
+      catastrofe: res.catastrofe || '',
+      narrativaIniziale: res.narrativaIniziale || '',
+      destinazione: {
+        oggetto: _canonName(res.destinazione.oggetto) || tappe[tappe.length - 1].oggetto,
+        motivo: res.destinazione.motivo || '',
+      },
+      tappe,
+      corrente: 0,      // indice della tappa attuale
+      completata: false,
+    };
+  }
 
-		  // ============ CHIAMATA B: raffinamento singola tappa ============
-		  async function refineStage(idx) {
-			const tappa = _run.tappe[idx];
-			if (tappa.raffinata && tappa._sfida) return; // già fatto (ripresa)
+  // ============ CHIAMATA B: raffinamento singola tappa ============
+  async function refineStage(idx) {
+    const tappa = _run.tappe[idx];
+    if (tappa.raffinata && tappa._sfida) return; // già fatto (ripresa)
 
-			const system =
-			  'Genera il contenuto di UNA tappa di un gioco escape-room spaziale. Rispondi SOLO con JSON valido, ' +
-			  'in ITALIANO. La sfida deve essere risolvibile e avere una risposta corretta chiara. ' +
-			  'Puoi usare dati astronomici reali del corpo celeste indicato.';
-			const prompt =
-			  `Contesto missione: "${_run.titolo}" — ${_run.catastrofe}.\n` +
-			  `Tappa ${tappa.ordine} sul corpo celeste: ${tappa.oggetto} (tipo: ${tappa.tipo}).\n` +
-			  `Genera JSON:\n` +
-			  `{"descrizioneAmbientazione":"2-3 frasi che calano il giocatore nella tappa",` +
-			  `"sfida":{"tipo":"domanda|indovinello|enigma_logico|enigma_matematico",` +
-			  `"testo":"la sfida","indizi":["indizio1","indizio2"],` +
-			  `"rispostaAttesa":"soluzione di riferimento","criterio":"cosa rende corretta una risposta"},` +
-			  `"componente":{"nome":"es. Cella a fusione","descrizione":"a cosa serve per l'astronave"}}`;
+    const system =
+      'Genera il contenuto di UNA tappa di un gioco escape-room spaziale. Rispondi SOLO con JSON valido, ' +
+      'in ITALIANO. La sfida deve essere risolvibile e avere una risposta corretta chiara. ' +
+      'Puoi usare dati astronomici reali del corpo celeste indicato.';
+    const prompt =
+      `Contesto missione: "${_run.titolo}" — ${_run.catastrofe}.\n` +
+      `Tappa ${tappa.ordine} sul corpo celeste: ${tappa.oggetto} (tipo: ${tappa.tipo}).\n` +
+      `Genera JSON:\n` +
+      `{"descrizioneAmbientazione":"2-3 frasi che calano il giocatore nella tappa",` +
+      `"sfida":{"tipo":"domanda|indovinello|enigma_logico|enigma_matematico",` +
+      `"testo":"la sfida","indizi":["indizio1","indizio2"],` +
+      `"rispostaAttesa":"soluzione di riferimento","criterio":"cosa rende corretta una risposta"},` +
+      `"componente":{"nome":"es. Cella a fusione","descrizione":"a cosa serve per l'astronave"}}`;
 
-			const res = await AI.ask({ prompt, system, json: true, useCache: false, timeout: 200000 });
-			if (!res || !res.sfida || !res.sfida.testo) throw new Error('REFINE_INVALID');
+    const res = await AI.ask({ prompt, system, json: true, useCache: false, timeout: 120000 });
+    if (!res || !res.sfida || !res.sfida.testo) throw new Error('REFINE_INVALID');
 
-			tappa.descrizione = res.descrizioneAmbientazione || '';
-			tappa._sfida = {
-			  tipo: res.sfida.tipo || 'domanda',
-			  testo: res.sfida.testo,
-			  indizi: Array.isArray(res.sfida.indizi) ? res.sfida.indizi : [],
-			  rispostaAttesa: res.sfida.rispostaAttesa || '',
-			  criterio: res.sfida.criterio || '',
-			};
-			tappa.componenteNome = (res.componente && res.componente.nome) || 'Componente ignoto';
-			tappa.componenteDesc = (res.componente && res.componente.descrizione) || '';
-			tappa.raffinata = true;
-			_persist();
-		  }
+    tappa.descrizione = res.descrizioneAmbientazione || '';
+    tappa._sfida = {
+      tipo: res.sfida.tipo || 'domanda',
+      testo: res.sfida.testo,
+      indizi: Array.isArray(res.sfida.indizi) ? res.sfida.indizi : [],
+      rispostaAttesa: res.sfida.rispostaAttesa || '',
+      criterio: res.sfida.criterio || '',
+    };
+    tappa.componenteNome = (res.componente && res.componente.nome) || 'Componente ignoto';
+    tappa.componenteDesc = (res.componente && res.componente.descrizione) || '';
+    tappa.raffinata = true;
+    _persist();
+  }
 
-		  // ============ GIUDICE AI: valuta la risposta ============
-		  async function judgeAnswer(idx, userAnswer) {
-			const tappa = _run.tappe[idx];
-			const s = tappa._sfida;
-			if (!s) return { corretta: false, spiegazione: 'Sfida non disponibile.', indizio: null };
-			const preIndizio = s.indizi[tappa._indizeUsati] || null; // indizio pre-generato non ancora mostrato
+  // ============ GIUDICE AI: valuta la risposta ============
+  async function judgeAnswer(idx, userAnswer) {
+    const tappa = _run.tappe[idx];
+    const s = tappa._sfida;
+    const preIndizio = s.indizi[tappa._indizeUsati] || null; // indizio pre-generato non ancora mostrato
 
-			const system =
-			  'Sei il giudice di un gioco escape-room. Valuta se la risposta dell\'utente è corretta, ' +
-			  'accettando sinonimi, maiuscole diverse e piccoli errori di battitura. Rispondi SOLO con JSON ' +
-			  'valido, in ITALIANO. Se la risposta è errata, fornisci UN indizio utile ma non la soluzione.';
-			const prompt =
-			  `Sfida: "${s.testo}".\n` +
-			  `Risposta attesa (riferimento): "${s.rispostaAttesa}".\n` +
-			  `Criterio di correttezza: "${s.criterio}".\n` +
-			  (preIndizio ? `Indizio disponibile da riusare se serve: "${preIndizio}".\n` : '') +
-			  `Risposta dell'utente: "${userAnswer}".\n` +
-			  `JSON: {"corretta":true|false,"spiegazione":"breve","indizio":"nuovo indizio o null se corretta"}`;
+    const system =
+      'Sei il giudice di un gioco escape-room. Valuta se la risposta dell\'utente è corretta, ' +
+      'accettando sinonimi, maiuscole diverse e piccoli errori di battitura. Rispondi SOLO con JSON ' +
+      'valido, in ITALIANO. Se la risposta è errata, fornisci UN indizio utile ma non la soluzione.';
+    const prompt =
+      `Sfida: "${s.testo}".\n` +
+      `Risposta attesa (riferimento): "${s.rispostaAttesa}".\n` +
+      `Criterio di correttezza: "${s.criterio}".\n` +
+      (preIndizio ? `Indizio disponibile da riusare se serve: "${preIndizio}".\n` : '') +
+      `Risposta dell'utente: "${userAnswer}".\n` +
+      `JSON: {"corretta":true|false,"spiegazione":"breve","indizio":"nuovo indizio o null se corretta"}`;
 
-			const res = await AI.ask({ prompt, system, json: true, useCache: false, timeout: 90000 });
-				if (!res) return { corretta: false, spiegazione: 'Nessuna risposta dal giudice.', indizio: preIndizio };
+    const res = await AI.ask({ prompt, system, json: true, useCache: false, timeout: 90000 });
+        if (!res) return { corretta: false, spiegazione: 'Nessuna risposta dal giudice.', indizio: preIndizio };
 
-			if (res.corretta) {
-			  // consuma eventuale indizio preparato non serve più
-			  return { corretta: true, spiegazione: res.spiegazione || 'Corretto!', indizio: null };
-			}
-			// errata: se c'è un indizio pre-generato non ancora usato, lo consumiamo (ibrido)
-			let indizio = res.indizio || null;
-			if (preIndizio) { tappa._indizeUsati++; indizio = preIndizio; }
-			return { corretta: false, spiegazione: res.spiegazione || 'Non è la risposta giusta.', indizio };
-		  }
+    if (res.corretta) {
+      // consuma eventuale indizio preparato non serve più
+      return { corretta: true, spiegazione: res.spiegazione || 'Corretto!', indizio: null };
+    }
+    // errata: se c'è un indizio pre-generato non ancora usato, lo consumiamo (ibrido)
+    let indizio = res.indizio || null;
+    if (preIndizio) { tappa._indizeUsati++; indizio = preIndizio; }
+    return { corretta: false, spiegazione: res.spiegazione || 'Non è la risposta giusta.', indizio };
+  }
 
-		  // ============ FLUSSO DI GIOCO ============
-		  async function renderCurrentStage() {
-			if (!_run) return;
-			if (_run.completata) return finishGame();
-			const idx = _run.corrente;
-			const tappa = _run.tappe[idx];
-			el.title.textContent = `Tappa ${tappa.ordine}/${_run.tappe.length}`;
-			setStatus('preparo…');
-			setBody('Rotta verso ' + tappa.oggetto + '…');
-			showInput(false);
-			renderComponents();
-			// vola verso l'oggetto reale
-			navigateToObject(tappa.oggetto);
-			// raffina la tappa (lazy)
-			try {
-			  await refineStage(idx);
-			} catch (e) {
-			  setStatus('errore'); setBody('Impossibile generare la tappa. Riprova più tardi.');
-			  return;
-			}
-			setStatus('');
-			setBody(`📍 ${tappa.oggetto}\n\n${tappa.descrizione}\n\n🧩 ${tappa._sfida.testo}`);
-			showInput(true);
-			el.answer.value = '';
-			el.answer.focus();
-		  }
+  // ============ FLUSSO DI GIOCO ============
+  async function renderCurrentStage() {
+    if (_run.completata) return finishGame();
+    const idx = _run.corrente;
+    const tappa = _run.tappe[idx];
+    el.title.textContent = `Tappa ${tappa.ordine}/${_run.tappe.length}`;
+    setStatus('preparo…');
+    setBody('Rotta verso ' + tappa.oggetto + '…');
+    showInput(false);
+    renderComponents();
+    // vola verso l'oggetto reale
+    navigateToObject(tappa.oggetto);
+    // raffina la tappa (lazy)
+    try {
+      await refineStage(idx);
+    } catch (e) {
+      setStatus('errore'); setBody('Impossibile generare la tappa. Riprova più tardi.');
+      return;
+    }
+    setStatus('');
+    setBody(`📍 ${tappa.oggetto}\n\n${tappa.descrizione}\n\n🧩 ${tappa._sfida.testo}`);
+    showInput(true);
+    el.answer.value = '';
+    el.answer.focus();
+  }
 
-		  async function submitAnswer() {
-			if (_busy || !_run || _run.completata) return;
-			const txt = (el.answer.value || '').trim();
-			if (!txt) return;
-			_busy = true;
-			el.submit.disabled = true;
-			setStatus('valuto…');
-			const idx = _run.corrente;
-			const tappa = _run.tappe[idx];
-			tappa.tentativi++;
-			try {
-			  const verdict = await judgeAnswer(idx, txt);
-			  if (verdict.corretta) {
-				tappa.risolta = true;
-				_persist();
-				renderComponents();
-				setBody(`✅ ${verdict.spiegazione}\n\n🔧 Hai raccolto: ${tappa.componenteNome}\n${tappa.componenteDesc || ''}`);
-				showInput(false);
-				// avanza
-				if (idx + 1 >= _run.tappe.length) {
-				  _run.completata = true; _persist();
-				  setTimeout(finishGame, 2200);
-				} else {
-				  _run.corrente = idx + 1; _persist();
-				  setTimeout(renderCurrentStage, 2200);
-				}
-			  } else {
-				const hint = verdict.indizio ? `\n\n💡 Indizio: ${verdict.indizio}` : '';
-				setBody(`❌ ${verdict.spiegazione}${hint}\n\n🧩 ${tappa._sfida.testo}`);
-				el.answer.value = '';
-				el.answer.focus();
-			  }
-			} catch (e) {
-			  setBody('⚠ Il giudice AI non ha risposto. Riprova.');
-			} finally {
-			  _busy = false;
-			  el.submit.disabled = false;
-			  setStatus('');
-			}
-		  }
+  async function submitAnswer() {
+    if (_busy || !_run || _run.completata) return;
+    const txt = (el.answer.value || '').trim();
+    if (!txt) return;
+    _busy = true;
+    el.submit.disabled = true;
+    setStatus('valuto…');
+    const idx = _run.corrente;
+    const tappa = _run.tappe[idx];
+    tappa.tentativi++;
+    try {
+      const verdict = await judgeAnswer(idx, txt);
+      if (verdict.corretta) {
+        tappa.risolta = true;
+        _persist();
+        renderComponents();
+        setBody(`✅ ${verdict.spiegazione}\n\n🔧 Hai raccolto: ${tappa.componenteNome}\n${tappa.componenteDesc || ''}`);
+        showInput(false);
+        // avanza
+        if (idx + 1 >= _run.tappe.length) {
+          _run.completata = true; _persist();
+          setTimeout(finishGame, 2200);
+        } else {
+          _run.corrente = idx + 1; _persist();
+          setTimeout(renderCurrentStage, 2200);
+        }
+      } else {
+        const hint = verdict.indizio ? `\n\n💡 Indizio: ${verdict.indizio}` : '';
+        setBody(`❌ ${verdict.spiegazione}${hint}\n\n🧩 ${tappa._sfida.testo}`);
+        el.answer.value = '';
+        el.answer.focus();
+      }
+    } catch (e) {
+      setBody('⚠ Il giudice AI non ha risposto. Riprova.');
+    } finally {
+      _busy = false;
+      el.submit.disabled = false;
+      setStatus('');
+    }
+  }
 
-		  function finishGame() {
-			if (!_run) return;
-			el.title.textContent = 'Missione compiuta';
-			setStatus('🏁');
-			const d = _run.destinazione;
-			setBody(`🚀 Con tutti i componenti raccolti, l'astronave raggiunge ${d.oggetto}!\n\n${d.motivo}\n\nL'umanità è salva. Fine della fuga.`);
-			showInput(false);
-			renderComponents();
-			navigateToObject(d.oggetto);
-			_clear(); // partita conclusa: pulizia stato salvato
-		  }
+  function finishGame() {
+    el.title.textContent = 'Missione compiuta';
+    setStatus('🏁');
+    const d = _run.destinazione;
+    setBody(`🚀 Con tutti i componenti raccolti, l'astronave raggiunge ${d.oggetto}!\n\n${d.motivo}\n\nL'umanità è salva. Fine della fuga.`);
+    showInput(false);
+    renderComponents();
+    navigateToObject(d.oggetto);
+    _clear(); // partita conclusa: pulizia stato salvato
+  }
 
-		  // ============ AVVIO / RIPRESA / TOGGLE ============
-		  async function startNewRun() {
-			setStatus('genero missione…');
-			setBody('Una catastrofe minaccia la Terra… preparo la fuga.');
-			showInput(false);
-			try {
-			  _run = await generateRun();
-			  _persist();
-			  setBody(`🌍 ${_run.titolo}\n\n${_run.catastrofe}\n\n${_run.narrativaIniziale}`);
-			  setTimeout(renderCurrentStage, 2600);
-			} catch (e) {
-			  setStatus('errore');
-			  setBody('Generazione non riuscita. Verifica che Ollama sia attivo e riprova.');
-			}
-		  }
+  // ============ AVVIO / RIPRESA / TOGGLE ============
+  async function startNewRun() {
+    setStatus('genero missione…');
+    setBody('Una catastrofe minaccia la Terra… preparo la fuga.');
+    showInput(false);
+    try {
+      _run = await generateRun();
+      _persist();
+      setBody(`🌍 ${_run.titolo}\n\n${_run.catastrofe}\n\n${_run.narrativaIniziale}`);
+      setTimeout(renderCurrentStage, 2600);
+    } catch (e) {
+      setStatus('errore');
+      setBody('Generazione non riuscita. Verifica che Ollama sia attivo e riprova.');
+    }
+  }
 
-		  async function enterGame() {
-			if (!AI.enabled) { setBody('⚠ AI non disponibile: avvia Ollama per giocare.'); el.panel.classList.add('visible'); return; }
-			_mode = 'game';
-			el.toggle.classList.add('game-active');
-			el.panel.classList.add('visible');
-			const saved = _load();
-			if (saved && !saved.completata) {
-			  _run = saved;
-			  // i campi _sfida sono già dentro _run (offuscati in storage, in chiaro in RAM)
-			  await renderCurrentStage();
-			} else {
-			  await startNewRun();
-			}
-		  }
+  async function enterGame() {
+    if (!AI.enabled) { setBody('⚠ AI non disponibile: avvia Ollama per giocare.'); el.panel.classList.add('visible'); return; }
+    _mode = 'game';
+    el.toggle.classList.add('game-active');
+    el.panel.classList.add('visible');
+    const saved = _load();
+    if (saved && !saved.completata) {
+      _run = saved;
+      // i campi _sfida sono già dentro _run (offuscati in storage, in chiaro in RAM)
+      renderCurrentStage();
+    } else {
+      await startNewRun();
+    }
+  }
 
-		  function exitGame() {
-			_mode = 'sim';
-			_run = null;
-			_busy = false;
-			el.toggle.classList.remove('game-active');
-			el.panel.classList.remove('visible');
-			if (typeof stopTracking === 'function') stopTracking();
-		  }
+  function exitGame() {
+    _mode = 'sim';
+    el.toggle.classList.remove('game-active');
+    el.panel.classList.remove('visible');
+    if (typeof stopTracking === 'function') stopTracking();
+  }
 
-		  function toggleMode() { _mode === 'game' ? exitGame() : enterGame(); }
+  function toggleMode() { _mode === 'game' ? exitGame() : enterGame(); }
 
-		  function init() {
-			_cacheEls();
-			if (!el.toggle) return;
-			el.toggle.addEventListener('click', toggleMode);
-			el.submit.addEventListener('click', submitAnswer);
-			el.answer.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitAnswer(); });
-		  }
+  function init() {
+    _cacheEls();
+    if (!el.toggle) return;
+    el.toggle.addEventListener('click', toggleMode);
+    el.submit.addEventListener('click', submitAnswer);
+    el.answer.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitAnswer(); });
+  }
 
-		  // API pubblica MINIMALE (nessun dato sensibile esposto)
-		  return { init, toggleMode, isGameMode: () => _mode === 'game' };
-		})();
+  // API pubblica MINIMALE (nessun dato sensibile esposto)
+  return { init, toggleMode, isGameMode: () => _mode === 'game' };
+})();
 
-		Game.init();
+Game.init();
+		
+		
+		
+		
+		
+		
 		AI.init();
 		animate();
 		
