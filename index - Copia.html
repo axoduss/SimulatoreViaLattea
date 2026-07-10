@@ -1,3 +1,726 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulatore Sistema Solare 3D</title>
+	<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;600;800&display=swap" rel="stylesheet">
+	<link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }		
+		:root {
+			--bg: #030810;
+			--text-primary: #e8edf5;
+			--text-secondary: #5a6a7a;
+			--text-dim: #2a3545;
+			--accent: #7dd3fc;
+			--accent-bright: #a5e4ff;
+			--accent-dim: rgba(125, 211, 252, 0.08);
+			--accent-glow: rgba(125, 211, 252, 0.15);
+			--border: rgba(125, 211, 252, 0.08);
+			--border-hover: rgba(125, 211, 252, 0.2);
+			--glass: rgba(8, 16, 32, 0.65);
+			--glass-solid: rgba(10, 20, 40, 0.85);
+		}
+		
+		body {
+			overflow: hidden;
+			background: var(--bg);
+			font-family: 'Inter', -apple-system, sans-serif;
+			color: var(--text-primary);
+		}
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        /* === SEARCH BAR — Glass Pill === */
+		#search-container {
+			position: fixed;
+			top: 28px;
+			left: 50%;
+			transform: translateX(-50%);
+			z-index: 200;
+		}
+
+		.search-box {
+			display: flex;
+			align-items: center;
+			gap: 10px;
+			background: var(--glass);
+			backdrop-filter: blur(20px);
+			-webkit-backdrop-filter: blur(20px);
+			border: 1px solid var(--border);
+			border-radius: 24px;
+			padding: 10px 20px;
+			transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+			min-width: 300px;
+		}
+
+		.search-box:hover,
+		.search-box:focus-within {
+			border-color: var(--border-hover);
+			background: var(--glass-solid);
+			box-shadow: 0 0 30px rgba(125, 211, 252, 0.05), inset 0 0 30px rgba(125, 211, 252, 0.02);
+		}
+
+		.search-icon {
+			width: 16px;
+			height: 16px;
+			opacity: 0.4;
+			flex-shrink: 0;
+			transition: opacity 0.3s;
+		}
+
+		.search-box:focus-within .search-icon {
+			opacity: 0.8;
+		}
+
+		#search-input {
+			background: transparent;
+			border: none;
+			color: var(--text-primary);
+			font-family: 'Inter', sans-serif;
+			font-size: 13px;
+			font-weight: 300;
+			width: 100%;
+			outline: none;
+			letter-spacing: 0.3px;
+		}
+
+		#search-input::placeholder {
+			color: var(--text-dim);
+			font-weight: 300;
+		}
+
+		.search-shortcut {
+			font-size: 10px;
+			color: var(--text-dim);
+			border: 1px solid var(--border);
+			padding: 2px 7px;
+			border-radius: 4px;
+			font-weight: 400;
+			flex-shrink: 0;
+		}
+
+		#search-suggestions {
+			position: absolute;
+			top: calc(100% + 6px);
+			left: 0;
+			right: 0;
+			background: var(--glass-solid);
+			backdrop-filter: blur(20px);
+			border: 1px solid var(--border);
+			border-radius: 12px;
+			overflow: hidden;
+			display: none;
+			box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+		}
+
+		#search-suggestions.visible { display: block; }
+
+		.suggestion-item {
+			padding: 10px 18px;
+			color: var(--text-secondary);
+			font-family: 'Inter', sans-serif;
+			font-size: 12px;
+			font-weight: 300;
+			cursor: pointer;
+			transition: all 0.15s;
+			border-bottom: 1px solid var(--border);
+			display: flex;
+			align-items: center;
+			gap: 10px;
+		}
+
+		.suggestion-item:last-child { border-bottom: none; }
+
+		.suggestion-item:hover {
+			background: var(--accent-dim);
+			color: var(--text-primary);
+		}
+
+		#search-status {
+			position: absolute;
+			top: calc(100% + 6px);
+			right: 0;
+			padding: 6px 12px;
+			background: var(--glass-solid);
+			border: 1px solid rgba(255, 80, 80, 0.3);
+			border-radius: 8px;
+			color: #ff6666;
+			font-size: 11px;
+			display: none;
+		}
+
+		#search-status.visible { display: block; }
+
+		/* === TIMELINE CONTROLS === */
+		#controls {
+			position: fixed;
+			bottom: 36px;
+			left: 50%;
+			transform: translateX(-50%);
+			display: flex;
+			align-items: center;
+			gap: 16px;
+			background: var(--glass);
+			backdrop-filter: blur(20px);
+			-webkit-backdrop-filter: blur(20px);
+			border: 1px solid var(--border);
+			border-radius: 24px;
+			padding: 10px 24px;
+			z-index: 100;
+			opacity: 0;
+			transition: opacity 0.4s;
+		}
+
+		body:hover #controls,
+		body.controls-visible #controls {
+			opacity: 1;
+		}
+
+		.play-btn {
+			width: 32px;
+			height: 32px;
+			border-radius: 50%;
+			border: 1px solid var(--border);
+			background: transparent;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			cursor: pointer;
+			transition: all 0.25s;
+			flex-shrink: 0;
+			color: var(--text-primary);
+		}
+
+		.play-btn:hover {
+			border-color: var(--accent);
+			background: var(--accent-dim);
+			box-shadow: 0 0 15px rgba(125, 211, 252, 0.1);
+		}
+
+		.play-btn svg {
+			width: 11px;
+			height: 11px;
+			fill: currentColor;
+		}
+
+		.timeline-track {
+			width: 240px;
+			height: 3px;
+			background: rgba(255, 255, 255, 0.06);
+			border-radius: 2px;
+			position: relative;
+			cursor: pointer;
+			transition: height 0.2s;
+		}
+
+		.timeline-track:hover { height: 5px; }
+
+		.timeline-fill {
+			height: 100%;
+			width: 0%;
+			background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+			border-radius: 2px;
+			transition: width 0.3s;
+		}
+
+		.speed-control {
+			font-size: 11px;
+			font-weight: 300;
+			color: var(--text-secondary);
+			cursor: pointer;
+			padding: 4px 8px;
+			border-radius: 4px;
+			transition: all 0.2s;
+			flex-shrink: 0;
+			min-width: 35px;
+			text-align: center;
+		}
+
+		.speed-control:hover {
+			color: var(--text-primary);
+			background: var(--accent-dim);
+		}
+
+		.speed-control span { color: var(--accent); font-weight: 500; }
+		
+		
+		
+		.audio-btn {
+			  width: 32px; height: 32px;
+			  border-radius: 50%;
+			  border: 1px solid var(--border);
+			  background: transparent;
+			  display: flex; align-items: center; justify-content: center;
+			  cursor: pointer;
+			  transition: all 0.25s;
+			  flex-shrink: 0;
+			  color: var(--text-secondary);
+		}
+		.audio-btn:hover {
+			  border-color: var(--accent);
+			  background: var(--accent-dim);
+			  box-shadow: 0 0 15px rgba(125, 211, 252, 0.1);
+			  color: var(--text-primary);
+		}
+		.audio-btn.active {
+			  color: var(--accent);
+			  border-color: var(--accent);
+		}
+		.audio-btn svg { width: 15px; height: 15px; }
+		
+		
+		
+
+		/* === INFO CARD (contextual, on tracking) === */
+		#info-panel {
+			position: fixed;
+			bottom: 100px;
+			left: 40px;
+			z-index: 100;
+			opacity: 0;
+			transform: translateY(12px);
+			transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+			pointer-events: none;
+		}
+
+		#info-panel.visible {
+			opacity: 1;
+			transform: translateY(0);
+			pointer-events: auto;
+		}
+
+		.info-card-inner {
+			background: var(--glass);
+			backdrop-filter: blur(24px);
+			-webkit-backdrop-filter: blur(24px);
+			border: 1px solid var(--border);
+			border-radius: 12px;
+			padding: 24px;
+			min-width: 220px;
+			box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(125, 211, 252, 0.05);
+		}
+
+		.info-card-header {
+			display: flex;
+			align-items: center;
+			gap: 10px;
+			margin-bottom: 4px;
+		}
+
+		.info-card-dot {
+			width: 8px;
+			height: 8px;
+			border-radius: 50%;
+			background: var(--accent);
+			box-shadow: 0 0 8px rgba(125, 211, 252, 0.5);
+		}
+
+		.info-card-name {
+			font-size: 18px;
+			font-weight: 600;
+			letter-spacing: -0.3px;
+		}
+
+		.info-card-type {
+			font-size: 10px;
+			font-weight: 300;
+			color: var(--text-secondary);
+			text-transform: uppercase;
+			letter-spacing: 1.5px;
+			margin-left: 18px;
+			margin-bottom: 16px;
+		}
+
+		.info-card-divider {
+			height: 1px;
+			background: linear-gradient(90deg, var(--border), transparent);
+			margin-bottom: 14px;
+		}
+
+		.info-data-row {
+			display: flex;
+			justify-content: space-between;
+			align-items: baseline;
+			margin-bottom: 10px;
+		}
+
+		.info-data-label {
+			font-size: 11px;
+			color: var(--text-secondary);
+			font-weight: 300;
+		}
+
+		.info-data-value {
+			font-size: 13px;
+			font-weight: 400;
+			font-variant-numeric: tabular-nums;
+		}
+
+		.info-data-unit {
+			font-size: 10px;
+			color: var(--text-secondary);
+			margin-left: 3px;
+		}
+
+		/* === TRACKING PILL === */
+		#tracking-indicator {
+			position: fixed;
+			top: 28px;
+			left: 40px;
+			display: flex;
+			align-items: center;
+			gap: 10px;
+			background: var(--glass);
+			backdrop-filter: blur(16px);
+			border: 1px solid var(--border);
+			border-radius: 20px;
+			padding: 8px 16px;
+			z-index: 200;
+			opacity: 0;
+			transform: translateY(-5px);
+			transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+		}
+
+		#tracking-indicator.visible {
+			opacity: 1;
+			transform: translateY(0);
+		}
+
+		.tracking-dot {
+			width: 6px;
+			height: 6px;
+			border-radius: 50%;
+			background: var(--accent);
+			box-shadow: 0 0 6px rgba(125, 211, 252, 0.6);
+			animation: dot-pulse 1.8s ease-in-out infinite;
+		}
+
+		@keyframes dot-pulse {
+			0%, 100% { opacity: 1; }
+			50% { opacity: 0.3; }
+		}
+
+		#tracking-indicator .stop-btn {
+			opacity: 0;
+			background: none;
+			border: none;
+			color: var(--text-secondary);
+			font-size: 15px;
+			cursor: pointer;
+			padding: 2px 6px;
+			border-radius: 50%;
+			transition: all 0.2s;
+		}
+
+		#tracking-indicator:hover .stop-btn { opacity: 1; }
+		#tracking-indicator .stop-btn:hover {
+			color: var(--accent);
+			background: var(--accent-dim);
+		}
+
+		/* === TARGET HUD — Minimal Circle === */
+		#target-hud {
+			position: fixed;
+			pointer-events: none;
+			z-index: 150;
+			display: none;
+		}
+
+		#target-hud.visible { display: block; }
+
+		.hud-ring {
+			position: absolute;
+			top: 50%;
+			left: 50%;
+			transform: translate(-50%, -50%);
+			width: 60px;
+			height: 60px;
+			border-radius: 50%;
+			border: 1px solid var(--accent);
+			opacity: 0.6;
+			animation: hud-breathe 2.5s ease-in-out infinite;
+		}
+
+		.hud-label {
+			position: absolute;
+			top: calc(50% + 38px);
+			left: 50%;
+			transform: translateX(-50%);
+			font-size: 10px;
+			font-weight: 300;
+			color: var(--accent);
+			letter-spacing: 0.8px;
+			text-transform: uppercase;
+			white-space: nowrap;
+		}
+
+		@keyframes hud-breathe {
+			0%, 100% { opacity: 0.4; transform: translate(-50%, -50%) scale(1); }
+			50% { opacity: 0.8; transform: translate(-50%, -50%) scale(1.03); }
+		}
+
+		/* === DATE DISPLAY === */
+		#date-display {
+			position: fixed;
+			top: 28px;
+			right: 40px;
+			z-index: 100;
+			text-align: right;
+			background: var(--glass);
+			backdrop-filter: blur(16px);
+			border: 1px solid var(--border);
+			border-radius: 10px;
+			padding: 10px 16px;
+			opacity: 0;
+			transition: opacity 0.4s;
+		}
+
+		body:hover #date-display { opacity: 1; }
+
+		.date-main {
+			font-size: 12px;
+			font-weight: 400;
+			letter-spacing: 0.3px;
+		}
+
+		.date-sub {
+			font-size: 10px;
+			color: var(--text-secondary);
+			margin-top: 2px;
+			font-weight: 300;
+		}
+
+		/* === PLANET LEGEND (drawer, hidden by default) === */
+		#planet-label {
+			position: fixed;
+			top: 50%;
+			right: 0;
+			transform: translateY(-50%) translateX(calc(100% - 30px));
+			z-index: 100;
+			background: var(--glass);
+			backdrop-filter: blur(20px);
+			border: 1px solid var(--border);
+			border-radius: 12px 0 0 12px;
+			padding: 20px 20px 20px 16px;
+			transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+		}
+
+		#planet-label:hover {
+			transform: translateY(-50%) translateX(0);
+		}
+
+		#planet-label .panel-title {
+			font-size: 10px;
+			font-weight: 300;
+			text-transform: uppercase;
+			letter-spacing: 1.5px;
+			color: var(--text-secondary);
+			margin-bottom: 14px;
+		}
+
+		.legend-item {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			padding: 5px 0;
+			cursor: pointer;
+			font-size: 11px;
+			font-weight: 300;
+			color: var(--text-secondary);
+			transition: color 0.2s;
+		}
+
+		.legend-item:hover { color: var(--text-primary); }
+
+		.legend-dot {
+			width: 6px;
+			height: 6px;
+			border-radius: 50%;
+			flex-shrink: 0;
+		}
+
+		/* === IDLE STATE === */
+		body.idle #search-container,
+		body.idle #controls,
+		body.idle #date-display,
+		body.idle #planet-label {
+			opacity: 0 !important;
+			pointer-events: none;
+		}
+		
+		
+		
+		#ai-panel {
+		  position: fixed;
+		  bottom: 100px;
+		  left: 300px; /* accanto alla info card */
+		  z-index: 100;
+		  max-width: 320px;
+		  opacity: 0;
+		  transform: translateY(12px);
+		  transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+		  pointer-events: none;
+		}
+		#ai-panel.visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+		.ai-card-inner {
+		  background: var(--glass);
+		  backdrop-filter: blur(24px);
+		  -webkit-backdrop-filter: blur(24px);
+		  border: 1px solid var(--border);
+		  border-radius: 12px;
+		  padding: 20px;
+		  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(125, 211, 252, 0.05);
+		}
+		.ai-card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+		.ai-dot {
+		  width: 8px; height: 8px; border-radius: 50%;
+		  background: var(--accent); box-shadow: 0 0 8px rgba(125, 211, 252, 0.5);
+		  animation: dot-pulse 1.8s ease-in-out infinite;
+		}
+		.ai-title {
+		  font-size: 10px; font-weight: 300; text-transform: uppercase;
+		  letter-spacing: 1.5px; color: var(--text-secondary);
+		}
+		.ai-status { font-size: 9px; color: var(--text-dim); margin-left: auto; }
+		.ai-card-body {
+		  font-size: 12px; font-weight: 300; line-height: 1.6;
+		  color: var(--text-primary);
+		}
+		/* body.idle #ai-panel:not(.generating) { opacity: 0 !important; pointer-events: none; } */
+			
+		
+		
+		
+		
+    </style>
+</head>
+<body>
+    <div id="canvas-container"></div>
+	<div id="search-container">
+		<div class="search-box">
+			<svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>
+			</svg>
+			<input type="text" id="search-input" placeholder="Cerca o fai una domanda..." autocomplete="off">
+			<span class="search-shortcut">/</span>
+		</div>
+		<div id="search-suggestions"></div>
+		<div id="search-status"></div>
+	</div>
+	<div id="date-display">
+		<div class="date-main" id="sim-date">—</div>
+		<div class="date-sub" id="sim-date-sub">—</div>
+	</div>
+
+	<div id="tracking-indicator">
+		<div class="tracking-dot"></div>
+		<span id="tracking-name">—</span>
+		<button class="stop-btn" id="stop-tracking">×</button>
+	</div>
+	
+	<div id="target-hud">
+		<div class="hud-ring"></div>
+		<div class="hud-label" id="hud-label"></div>
+	</div>
+
+	<div id="controls">
+		<div class="play-btn" id="play-btn">
+			<svg viewBox="0 0 24 24" id="play-icon">
+				<polygon points="8,5 19,12 8,19"/>
+			</svg>
+		</div>
+		<div class="timeline-track" id="timeline-track">
+			<div class="timeline-fill" id="timeline-fill"></div>
+		</div>
+		<div class="speed-control" id="speed-control"><span>1</span>x</div>
+		<div class="audio-btn" id="audio-btn" title="Audio narrazione AI">
+			<svg viewBox="0 0 24 24" id="audio-icon">
+			  <!-- icona muto di default -->
+			  <path d="M4 9v6h4l5 5V4L8 9H4z" fill="currentColor"/>
+			  <line x1="17" y1="8" x2="22" y2="13" stroke="currentColor" stroke-width="2"/>
+			  <line x1="22" y1="8" x2="17" y2="13" stroke="currentColor" stroke-width="2"/>
+			</svg>
+		</div>
+	</div>
+
+	<div id="info-panel">
+		<div class="info-card-inner">
+			<div class="info-card-header">
+				<div class="info-card-dot"></div>
+				<div class="info-card-name" id="info-name">—</div>
+			</div>
+			<div class="info-card-type" id="info-type">—</div>
+			<div class="info-card-divider"></div>
+			<div class="info-card-data">
+				<div class="info-data-row">
+					<span class="info-data-label">Distanza</span>
+					<span class="info-data-value" id="info-distance">—</span>
+				</div>
+				<div class="info-data-row">
+					<span class="info-data-label">Raggio</span>
+					<span class="info-data-value" id="info-radius">—</span>
+				</div>
+				<div class="info-data-row">
+					<span class="info-data-label">Periodo</span>
+					<span class="info-data-value" id="info-period">—</span>
+				</div>
+				<div class="info-data-row">
+					<span class="info-data-label">Velocità</span>
+					<span class="info-data-value" id="info-speed">—</span>
+				</div>
+			</div>
+		</div>
+	</div>
+	
+	<div id="ai-panel">
+	  <div class="ai-card-inner">
+		<div class="ai-card-header">
+		  <span class="ai-dot"></span>
+		  <span class="ai-title">Guida AI</span>
+		  <span class="ai-status" id="ai-status"></span>
+		</div>
+		<div class="ai-card-body" id="ai-narration">—</div>
+	  </div>
+	</div>
+
+    <div id="planet-label">
+        <div class="panel-title">Pianeti</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#b0b0b0"></span> Mercurio</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#e8c56d"></span> Venere</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#4488ff"></span> Terra</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#cc4422"></span> Marte</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#c88a50"></span> Giove</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#d4a84b"></span> Saturno</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#88ccdd"></span> Urano</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#4466dd"></span> Nettuno</div>
+		<div class="panel-title" style="margin-top:10px; font-size:13px; color:#ff8833;">Pianeti Nani</div>
+		<div class="legend-item"><span class="legend-dot" style="background:#aaaaaa"></span> Cerere</div>
+		<div class="legend-item"><span class="legend-dot" style="background:#c8a882"></span> Plutone</div>
+		<div class="legend-item"><span class="legend-dot" style="background:#dddddd"></span> Eris</div>
+		<div class="legend-item"><span class="legend-dot" style="background:#ddbbbb"></span> Haumea</div>
+		<div class="legend-item"><span class="legend-dot" style="background:#cc9966"></span> Makemake</div>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.164.1/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.164.1/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -43,7 +766,7 @@
 			  clearTimeout(t);
 			  this.enabled = res.ok;
 			  if (this.enabled) {
-				// verifica che il modello richiesto sia presente
+				// opzionale: verifica che il modello richiesto sia presente
 				const data = await res.json();
 				const models = (data.models || []).map(m => m.name);
 				const found = models.some(n => n.startsWith(this.model));
@@ -59,6 +782,8 @@
 			this.updateGlobalUI();
 			return this.enabled;
 		  },
+		  
+		  
 		  
 
 		  // Aggiorna elementi UI globali che dipendono dallo stato AI
@@ -80,7 +805,7 @@
 			  onChunk = null,
 			  useCache = false,
 			  timeout = 200000,
-			  signal = null,        // AbortSignal esterno
+			  signal = null,        // AbortSignal esterno (es. per annullare al cambio oggetto)
 			} = options;
 
 			// Cache: solo per risposte non-stream
@@ -98,10 +823,9 @@
 			};
 
 			const controller = new AbortController();
-			const onAbort = () => controller.abort();
-			const t = setTimeout(onAbort, timeout);
+			const t = setTimeout(() => controller.abort(), timeout);
 			// se arriva un abort esterno, propaghiamo
-			if (signal) signal.addEventListener('abort', onAbort);
+			if (signal) signal.addEventListener('abort', () => controller.abort());
 
 			try {
 			  const res = await fetch(`${this.url}/api/generate`, {
@@ -116,65 +840,37 @@
 				const reader = res.body.getReader();
 				const decoder = new TextDecoder();
 				let full = '';
-				let buffer = '';
 				while (true) {
 				  const { done, value } = await reader.read();
-				  if (done) {
-						// Elabora eventuali dati rimasti nel buffer alla fine
-						if (buffer.trim()) {
-							try {
-								const j = JSON.parse(buffer);
-								if (j.response) {
-									let cleanChunk = j.response.replace(/<\/?backspace>|<\|.*?\|>/g, '');
-									full += cleanChunk;
-									if (onChunk) onChunk(j.response, full);
-								}
-							} catch (_) {}
-						}
-						break;
-					}
-					
-					buffer += decoder.decode(value, { stream: true });
-					const lines = buffer.split('\n');
-					buffer = lines.pop(); // <-- Mantiene l'ultima riga (incompleta) nel buffer
-					
-					for (const line of lines) {
-						if (!line.trim()) continue;
-						try {
-							const j = JSON.parse(line);
-							if (j.response) {
-								let cleanChunk = j.response.replace(/<\/?backspace>|<\|.*?\|>/g, '');
-								full += cleanChunk;
-								if (onChunk) onChunk(j.response, full);
-							}
-						} catch (_) { /* riga parziale o malformata */ }
-					}
+				  if (done) break;
+				  const chunk = decoder.decode(value, { stream: true });
+				  for (const line of chunk.split('\n')) {
+					if (!line.trim()) continue;
+					try {
+					  const j = JSON.parse(line);
+					  if (j.response) {
+						let cleanChunk = j.response.replace(/<\/?backspace>|<\|.*?\|>/g, '');
+						full += cleanChunk;
+						if (onChunk) onChunk(j.response, full);
+					  }
+					} catch (_) { /* riga parziale */ }
+				  }
 				}
 				return full;
 			  } else {
 				const data = await res.json();
-					let out;
-					if (json) {
-						let raw = data.response;
-						// Rimuovi eventuali blocchi markdown ```json ... ```
-						const match = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-						if (match) raw = match[1];
-						out = JSON.parse(raw.trim());
-					} else {
-						out = data.response;
-					}
-					if (useCache) this.cache.set(cacheKey, out);
-					return out;
+				const out = json ? JSON.parse(data.response) : data.response;
+				if (useCache) this.cache.set(cacheKey, out);
+				return out;
 			  }
 			} finally {
 			  clearTimeout(t);
-			  if (signal) signal.removeEventListener('abort', onAbort);
 			}
 		  }
 		};	
 		
 		
-		// === CLASSIFICAZIONE INTENTO  ===
+		// === CLASSIFICAZIONE INTENTO (navigazione vs domanda) ===
 		async function classifyQuery(query) {
 		  const system = `Classifichi le richieste per un simulatore 3D del Sistema Solare.
 		Rispondi SOLO con JSON valido:
@@ -182,7 +878,7 @@
 		{"intent":"question"} se pone una domanda astronomica (es. "quali sono i satelliti di Giove?").`;
 		  const res = await AI.ask({
 			prompt: `Richiesta utente: "${query}".`,
-			system, json: true, useCache: true, timeout: 100000
+			system, json: true, useCache: true, timeout: 30000
 		  });
 		  return (res && res.intent) ? res.intent : 'navigate';
 		}
@@ -204,10 +900,7 @@
 		  satPerPianeta.push(`Plutone: ${satelliteDataPlutone.map(s => s.name).join(', ')}`);
 		  const contesto = `Satelliti presenti nel simulatore — ${satPerPianeta.join('; ')}.`;
 
-		  if (narrationSignal) {
-			narrationSignal.abort();
-			TTS.stop();
-		  }
+		  if (narrationSignal) narrationSignal.abort();
 		  narrationSignal = new AbortController();
 
 		  try {
@@ -239,7 +932,11 @@
 			statusEl.textContent = 'AI offline';
 		  }
 		}
-			
+		
+		
+		
+		
+		
 		// === MODULO TTS (Text-To-Speech del browser) ===
 		const TTS = {
 		  enabled: false,
@@ -1078,7 +1775,7 @@
 			const ratio = (e.clientX - rect.left) / rect.width;
 			// Permette di saltare avanti/indietro nel tempo simulato
 			// Mappiamo 0-100% su 0-365 giorni (un anno)
-			simulatedDays = ratio * 365.25;
+			simulatedDays = ratio * 365.25 * speedMultiplier;
 		});
 		
 
@@ -1321,10 +2018,7 @@
 		  }
 
 		  // annulla eventuale narrazione precedente ancora in corso
-		  if (narrationSignal) {
-				narrationSignal.abort();
-				TTS.stop();
-		  }
+		  if (narrationSignal) narrationSignal.abort();
 		  narrationSignal = new AbortController();
 
 		  bodyEl.textContent = '';
@@ -1717,11 +2411,8 @@
 			showSuggestions(results);
 		});
 
-		let isQueryProcessing = false;
 		searchInput.addEventListener('keydown', async (e) => {
 			if (e.key === 'Enter') {
-				
-				if (isQueryProcessing) return;
 				const query = searchInput.value;
 				const results = getSearchResults(query);
 
@@ -1735,7 +2426,6 @@
 
 				// 2) Nessun match letterale: se l'AI è attiva, decidi se è domanda o navigazione
 				if (AI.enabled) {
-				  isQueryProcessing = true;
 				  searchSuggestions.classList.remove('visible');
 				  showStatus('🤖 interpreto…', 8000);
 				  try {
@@ -1757,8 +2447,6 @@
 				  } catch (err) {
 					console.warn('[AI] interpretazione query fallita:', err);
 					showStatus('⚠ NESSUN RISULTATO');
-				  } finally {
-						isQueryProcessing = false; 
 				  }
 				} else {
 				  showStatus('⚠ NESSUN RISULTATO');
@@ -2271,6 +2959,11 @@
 		  }
 		});
 		renderAudioIcon();
+
+
+
+
+	
 		
 		// === IDLE DETECTION ===
 		let idleTimer;
@@ -2286,347 +2979,10 @@
 		document.addEventListener('keydown', resetIdle);
 		
 		resetIdle();
-		
-		
-		
-		// ============================================================
-		// MODULO GAME — Escape Room spaziale (IIFE con stato privato)
-		// ============================================================
-		const Game = (() => {
-		  const STORAGE_KEY = 'escapeGame:run';
-		  const KEY_SEED = 'EscapeGame';
-
-		  // --- stato PRIVATO (non accessibile da window/Game.) ---
-		  let _run = null;      // struttura completa con dati sensibili
-		  let _mode = 'sim';    // 'sim' | 'game'
-		  let _busy = false;
-		  let _arriveHook = null; // callback quando la camera arriva alla tappa
-
-		  // ---- offuscamento Base64 + XOR (deterrente per localStorage) ----
-		  function _xor(str, key) {
-			let out = '';
-			for (let i = 0; i < str.length; i++)
-			  out += String.fromCharCode(str.charCodeAt(i) ^ key.charCodeAt(i % key.length));
-			return out;
-		  }
-		  function _obf(obj, id) {
-			const jsonStr = JSON.stringify(obj);
-			const uriEncoded = encodeURIComponent(jsonStr); // Prima rendi tutto ASCII
-			const xored = _xor(uriEncoded, KEY_SEED + id); // Poi fai XOR (sicuro su ASCII)
-			return btoa(xored);
-		  }
-		  function _deobf(b64, id) {
-			try { 
-				const xored = atob(b64);
-				const uriEncoded = _xor(xored, KEY_SEED + id);
-				return JSON.parse(decodeURIComponent(uriEncoded)); // Decodifica alla fine
-			} catch (_) { return null; }
-		  }
-		  function _persist() {
-			if (!_run) return;
-			// id in chiaro come prefisso (serve per rileggere), payload offuscato
-			try { localStorage.setItem(STORAGE_KEY, _run.id + '|' + _obf(_run, _run.id)); } catch (_) {}
-		  }
-		  function _load() {
-			try {
-			  const raw = localStorage.getItem(STORAGE_KEY);
-			  if (!raw) return null;
-			  const sep = raw.indexOf('|');
-			  if (sep === -1) return null;
-			  const id = raw.slice(0, sep);
-			  return _deobf(raw.slice(sep + 1), id);
-			} catch (_) { return null; }
-		  }
-		  function _clear() { try { localStorage.removeItem(STORAGE_KEY); } catch (_) {} }
-
-		  // ---- riferimenti UI ----
-		  const el = {};
-		  function _cacheEls() {
-			el.toggle     = document.getElementById('game-toggle');
-			el.panel      = document.getElementById('game-panel');
-			el.title      = document.getElementById('game-title');
-			el.status     = document.getElementById('game-status');
-			el.body       = document.getElementById('game-body');
-			el.components = document.getElementById('game-components');
-			el.inputRow   = document.getElementById('game-input-row');
-			el.answer     = document.getElementById('game-answer');
-			el.submit     = document.getElementById('game-submit');
-		  }
-		  function setStatus(t) { el.status.textContent = t || ''; }
-		  function setBody(t) { el.body.textContent = t; }
-		  function showInput(show) { el.inputRow.style.display = show ? 'flex' : 'none'; }
-		  function renderComponents() {
-			if (!_run) { el.components.innerHTML = ''; return; }
-			el.components.innerHTML = _run.tappe
-			  .filter(t => t.risolta && t.componenteNome)
-			  .map(t => `<span class="game-chip">🔧 ${t.componenteNome}</span>`)
-			  .join('');
-		  }
-
-		  // ---- catalogo nomi reali (vincolo per l'AI) ----
-		  function catalogNames() { return searchableObjects.map(o => o.name); }
-		  const _existsInCatalog = n =>
-			searchableObjects.some(o => o.name.toLowerCase() === String(n).toLowerCase());
-		  const _canonName = n => {
-			const m = searchableObjects.find(o => o.name.toLowerCase() === String(n).toLowerCase());
-			return m ? m.name : null;
-		  };
-
-		  // ============ CHIAMATA A: struttura base ============
-		  async function generateRun() {
-			const nTappe = 5 + Math.floor(Math.random() * 4); // 5..8 (rand JS, non AI)
-			const nomi = catalogNames();
-			const system =
-			  'Sei il generatore di un gioco escape-room spaziale. Rispondi SOLO con JSON valido, in ITALIANO. ' +
-			  'Inventa una fuga dalla Terra verso un corpo celeste. Ogni tappa DEVE usare un nome ESATTO ' +
-			  'dalla lista fornita. Accetta licenza narrativa (mete anche irraggiungibili nella realtà).';
-			const prompt =
-			  `Corpi disponibili (usa ESATTAMENTE questi nomi): ${nomi.join(', ')}.\n` +
-			  `Genera una missione con ESATTAMENTE ${nTappe} tappe intermedie, tutte DIVERSE tra loro, ` +
-			  `più una destinazione finale (scelta dalla lista, diversa dalle tappe e diversa dalla Terra).\n` +
-			  `Formato JSON:\n` +
-			  `{"titolo":"...","catastrofe":"...","narrativaIniziale":"3-4 frasi",` +
-			  `"destinazione":{"oggetto":"<nome esatto>","motivo":"..."},` +
-			  `"tappe":[{"ordine":1,"oggetto":"<nome esatto>","tipo":"pianeta|luna|asteroide|stella|nano|deepsky"}]}`;
-
-			const res = await AI.ask({ prompt, system, json: true, useCache: false, timeout: 120000 });
-
-			// --- validazione rigorosa ---
-			if (!res || !Array.isArray(res.tappe) || !res.destinazione) throw new Error('GEN_INVALID');
-			const tappe = res.tappe
-			  .filter(t => t && _existsInCatalog(t.oggetto))
-			  .map((t, i) => ({
-				ordine: i + 1,
-				oggetto: _canonName(t.oggetto),
-				tipo: t.tipo || 'pianeta',
-				raffinata: false,
-				risolta: false,
-				componenteNome: null,
-				tentativi: 0,
-				// campi sensibili (popolati in fase B, tenuti solo qui in closure)
-				_sfida: null,       // { tipo, testo, indizi[], rispostaAttesa, criterio }
-				_indizeUsati: 0,
-			  }));
-			if (tappe.length < 4) throw new Error('GEN_TOO_FEW_STAGES');
-
-			return {
-			  id: 'run_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
-			  titolo: res.titolo || 'Fuga dalla Terra',
-			  catastrofe: res.catastrofe || '',
-			  narrativaIniziale: res.narrativaIniziale || '',
-			  destinazione: {
-				oggetto: _canonName(res.destinazione.oggetto) || tappe[tappe.length - 1].oggetto,
-				motivo: res.destinazione.motivo || '',
-			  },
-			  tappe,
-			  corrente: 0,      // indice della tappa attuale
-			  completata: false,
-			};
-		  }
-
-		  // ============ CHIAMATA B: raffinamento singola tappa ============
-		  async function refineStage(idx) {
-			const tappa = _run.tappe[idx];
-			if (tappa.raffinata && tappa._sfida) return; // già fatto (ripresa)
-
-			const system =
-			  'Genera il contenuto di UNA tappa di un gioco escape-room spaziale. Rispondi SOLO con JSON valido, ' +
-			  'in ITALIANO. La sfida deve essere risolvibile e avere una risposta corretta chiara. ' +
-			  'Puoi usare dati astronomici reali del corpo celeste indicato.';
-			const prompt =
-			  `Contesto missione: "${_run.titolo}" — ${_run.catastrofe}.\n` +
-			  `Tappa ${tappa.ordine} sul corpo celeste: ${tappa.oggetto} (tipo: ${tappa.tipo}).\n` +
-			  `Genera JSON:\n` +
-			  `{"descrizioneAmbientazione":"2-3 frasi che calano il giocatore nella tappa",` +
-			  `"sfida":{"tipo":"domanda|indovinello|enigma_logico|enigma_matematico",` +
-			  `"testo":"la sfida","indizi":["indizio1","indizio2"],` +
-			  `"rispostaAttesa":"soluzione di riferimento","criterio":"cosa rende corretta una risposta"},` +
-			  `"componente":{"nome":"es. Cella a fusione","descrizione":"a cosa serve per l'astronave"}}`;
-
-			const res = await AI.ask({ prompt, system, json: true, useCache: false, timeout: 200000 });
-			if (!res || !res.sfida || !res.sfida.testo) throw new Error('REFINE_INVALID');
-
-			tappa.descrizione = res.descrizioneAmbientazione || '';
-			tappa._sfida = {
-			  tipo: res.sfida.tipo || 'domanda',
-			  testo: res.sfida.testo,
-			  indizi: Array.isArray(res.sfida.indizi) ? res.sfida.indizi : [],
-			  rispostaAttesa: res.sfida.rispostaAttesa || '',
-			  criterio: res.sfida.criterio || '',
-			};
-			tappa.componenteNome = (res.componente && res.componente.nome) || 'Componente ignoto';
-			tappa.componenteDesc = (res.componente && res.componente.descrizione) || '';
-			tappa.raffinata = true;
-			_persist();
-		  }
-
-		  // ============ GIUDICE AI: valuta la risposta ============
-		  async function judgeAnswer(idx, userAnswer) {
-			const tappa = _run.tappe[idx];
-			const s = tappa._sfida;
-			if (!s) return { corretta: false, spiegazione: 'Sfida non disponibile.', indizio: null };
-			const preIndizio = s.indizi[tappa._indizeUsati] || null; // indizio pre-generato non ancora mostrato
-
-			const system =
-			  'Sei il giudice di un gioco escape-room. Valuta se la risposta dell\'utente è corretta, ' +
-			  'accettando sinonimi, maiuscole diverse e piccoli errori di battitura. Rispondi SOLO con JSON ' +
-			  'valido, in ITALIANO. Se la risposta è errata, fornisci UN indizio utile ma non la soluzione.';
-			const prompt =
-			  `Sfida: "${s.testo}".\n` +
-			  `Risposta attesa (riferimento): "${s.rispostaAttesa}".\n` +
-			  `Criterio di correttezza: "${s.criterio}".\n` +
-			  (preIndizio ? `Indizio disponibile da riusare se serve: "${preIndizio}".\n` : '') +
-			  `Risposta dell'utente: "${userAnswer}".\n` +
-			  `JSON: {"corretta":true|false,"spiegazione":"breve","indizio":"nuovo indizio o null se corretta"}`;
-
-			const res = await AI.ask({ prompt, system, json: true, useCache: false, timeout: 90000 });
-				if (!res) return { corretta: false, spiegazione: 'Nessuna risposta dal giudice.', indizio: preIndizio };
-
-			if (res.corretta) {
-			  // consuma eventuale indizio preparato non serve più
-			  return { corretta: true, spiegazione: res.spiegazione || 'Corretto!', indizio: null };
-			}
-			// errata: se c'è un indizio pre-generato non ancora usato, lo consumiamo (ibrido)
-			let indizio = res.indizio || null;
-			if (preIndizio) { tappa._indizeUsati++; indizio = preIndizio; }
-			return { corretta: false, spiegazione: res.spiegazione || 'Non è la risposta giusta.', indizio };
-		  }
-
-		  // ============ FLUSSO DI GIOCO ============
-		  async function renderCurrentStage() {
-			if (!_run) return;
-			if (_run.completata) return finishGame();
-			const idx = _run.corrente;
-			const tappa = _run.tappe[idx];
-			el.title.textContent = `Tappa ${tappa.ordine}/${_run.tappe.length}`;
-			setStatus('preparo…');
-			setBody('Rotta verso ' + tappa.oggetto + '…');
-			showInput(false);
-			renderComponents();
-			// vola verso l'oggetto reale
-			navigateToObject(tappa.oggetto);
-			// raffina la tappa (lazy)
-			try {
-			  await refineStage(idx);
-			} catch (e) {
-			  setStatus('errore'); setBody('Impossibile generare la tappa. Riprova più tardi.');
-			  return;
-			}
-			setStatus('');
-			setBody(`📍 ${tappa.oggetto}\n\n${tappa.descrizione}\n\n🧩 ${tappa._sfida.testo}`);
-			showInput(true);
-			el.answer.value = '';
-			el.answer.focus();
-		  }
-
-		  async function submitAnswer() {
-			if (_busy || !_run || _run.completata) return;
-			const txt = (el.answer.value || '').trim();
-			if (!txt) return;
-			_busy = true;
-			el.submit.disabled = true;
-			setStatus('valuto…');
-			const idx = _run.corrente;
-			const tappa = _run.tappe[idx];
-			tappa.tentativi++;
-			try {
-			  const verdict = await judgeAnswer(idx, txt);
-			  if (verdict.corretta) {
-				tappa.risolta = true;
-				_persist();
-				renderComponents();
-				setBody(`✅ ${verdict.spiegazione}\n\n🔧 Hai raccolto: ${tappa.componenteNome}\n${tappa.componenteDesc || ''}`);
-				showInput(false);
-				// avanza
-				if (idx + 1 >= _run.tappe.length) {
-				  _run.completata = true; _persist();
-				  setTimeout(finishGame, 2200);
-				} else {
-				  _run.corrente = idx + 1; _persist();
-				  setTimeout(renderCurrentStage, 2200);
-				}
-			  } else {
-				const hint = verdict.indizio ? `\n\n💡 Indizio: ${verdict.indizio}` : '';
-				setBody(`❌ ${verdict.spiegazione}${hint}\n\n🧩 ${tappa._sfida.testo}`);
-				el.answer.value = '';
-				el.answer.focus();
-			  }
-			} catch (e) {
-			  setBody('⚠ Il giudice AI non ha risposto. Riprova.');
-			} finally {
-			  _busy = false;
-			  el.submit.disabled = false;
-			  setStatus('');
-			}
-		  }
-
-		  function finishGame() {
-			if (!_run) return;
-			el.title.textContent = 'Missione compiuta';
-			setStatus('🏁');
-			const d = _run.destinazione;
-			setBody(`🚀 Con tutti i componenti raccolti, l'astronave raggiunge ${d.oggetto}!\n\n${d.motivo}\n\nL'umanità è salva. Fine della fuga.`);
-			showInput(false);
-			renderComponents();
-			navigateToObject(d.oggetto);
-			_clear(); // partita conclusa: pulizia stato salvato
-		  }
-
-		  // ============ AVVIO / RIPRESA / TOGGLE ============
-		  async function startNewRun() {
-			setStatus('genero missione…');
-			setBody('Una catastrofe minaccia la Terra… preparo la fuga.');
-			showInput(false);
-			try {
-			  _run = await generateRun();
-			  _persist();
-			  setBody(`🌍 ${_run.titolo}\n\n${_run.catastrofe}\n\n${_run.narrativaIniziale}`);
-			  setTimeout(renderCurrentStage, 2600);
-			} catch (e) {
-			  setStatus('errore');
-			  setBody('Generazione non riuscita. Verifica che Ollama sia attivo e riprova.');
-			}
-		  }
-
-		  async function enterGame() {
-			if (!AI.enabled) { setBody('⚠ AI non disponibile: avvia Ollama per giocare.'); el.panel.classList.add('visible'); return; }
-			_mode = 'game';
-			el.toggle.classList.add('game-active');
-			el.panel.classList.add('visible');
-			const saved = _load();
-			if (saved && !saved.completata) {
-			  _run = saved;
-			  // i campi _sfida sono già dentro _run (offuscati in storage, in chiaro in RAM)
-			  await renderCurrentStage();
-			} else {
-			  await startNewRun();
-			}
-		  }
-
-		  function exitGame() {
-			_mode = 'sim';
-			_run = null;
-			_busy = false;
-			el.toggle.classList.remove('game-active');
-			el.panel.classList.remove('visible');
-			if (typeof stopTracking === 'function') stopTracking();
-		  }
-
-		  function toggleMode() { _mode === 'game' ? exitGame() : enterGame(); }
-
-		  function init() {
-			_cacheEls();
-			if (!el.toggle) return;
-			el.toggle.addEventListener('click', toggleMode);
-			el.submit.addEventListener('click', submitAnswer);
-			el.answer.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitAnswer(); });
-		  }
-
-		  // API pubblica MINIMALE (nessun dato sensibile esposto)
-		  return { init, toggleMode, isGameMode: () => _mode === 'game' };
-		})();
-
-		Game.init();
 		AI.init();
 		animate();
 		
+		
+    </script>
+</body>
+</html>
