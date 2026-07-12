@@ -601,6 +601,18 @@
 				low: textureLoader.load('Texture/Sun_Moon_Stars/2k_moon.jpg'),
 				high: textureLoader.load('Texture/Sun_Moon_Stars/8k_moon.jpg')
 			},
+			m31: {
+				low: textureLoader.load('Texture/DeepSky/m31.png'),
+				high: textureLoader.load('Texture/DeepSky/m31.png')
+			},
+			m42: {
+				low: textureLoader.load('Texture/DeepSky/ngc3992.jpg'),
+				high: textureLoader.load('Texture/DeepSky/ngc3992.jpg')
+			},
+			m45: {
+				low: textureLoader.load('Texture/DeepSky/ngc4314.jpg'),
+				high: textureLoader.load('Texture/DeepSky/ngc4314.jpg')
+			},
 		};
 
 		// Texture key mapping per planet name
@@ -1098,24 +1110,37 @@
 
 		// Deep sky objects (approximate positions for educational purposes)
 		const deepSkyObjects = [
-			{ name: 'M31 - Andromeda', aliases: ['m31', 'andromeda'], icon: '🌌', type: 'deepsky', getPosition: () => new THREE.Vector3(400, 50, -200) },
-			{ name: 'M42 - Nebulosa di Orione', aliases: ['m42', 'orione', 'orion'], icon: '🌌', type: 'deepsky', getPosition: () => new THREE.Vector3(-300, -30, 350) },
-			{ name: 'M45 - Pleiadi', aliases: ['m45', 'pleiadi', 'pleiades'], icon: '✨', type: 'deepsky', getPosition: () => new THREE.Vector3(200, 80, 300) },
+			{ name: 'M31 - Andromeda', aliases: ['m31', 'andromeda'], icon: '🌌', type: 'deepsky', texKey: 'm31', getPosition: () => new THREE.Vector3(400, 50, -200) },
+			{ name: 'M42 - Nebulosa di Orione', aliases: ['m42', 'orione', 'orion'], icon: '🌌', type: 'deepsky', texKey: 'm42', getPosition: () => new THREE.Vector3(-300, -30, 350) },
+			{ name: 'M45 - Pleiadi', aliases: ['m45', 'pleiadi', 'pleiades'], icon: '✨', type: 'deepsky', texKey: 'm45', getPosition: () => new THREE.Vector3(200, 80, 300) },
 		];
 		searchableObjects.push(...deepSkyObjects);
 		
 		deepSkyObjects.forEach(dso => {
-		const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
-			color: 0xaaccff,
-			transparent: true,
-			opacity: 0.4,
-			blending: THREE.AdditiveBlending
-		}));
-		const pos = dso.getPosition();
-		sprite.position.copy(pos);
-		sprite.scale.set(5, 5, 1);
-		scene.add(sprite);
-	});
+			const texData = textures[dso.texKey];
+			const initialTexture = texData ? texData.low : null;
+
+			const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+				map: initialTexture,
+				color: initialTexture ? 0xffffff : 0xaaccff,
+				transparent: true,
+				opacity: initialTexture ? 0.9 : 0.4,
+				blending: THREE.AdditiveBlending,
+				depthWrite: false
+			}));
+			
+			const pos = dso.getPosition();
+			sprite.position.copy(pos);
+			sprite.scale.set(5, 5, 1);
+			
+			// Prepariamo lo sprite per il sistema LOD
+			sprite.userData.currentLOD = 'low';
+			
+			// Salviamo il riferimento allo sprite dentro l'oggetto per poterlo aggiornare dopo
+			dso.sprite = sprite; 
+			
+			scene.add(sprite);
+		});
 		
 		// Add satellites to searchable objects
 		satellites.forEach(sat => {
@@ -2190,6 +2215,27 @@
 					}
 				}
 			});
+			
+			// Deep Sky LOD
+			deepSkyObjects.forEach(dso => {
+				if (!dso.sprite) return;
+				
+				const dist = camera.position.distanceTo(dso.sprite.position);
+				const texData = textures[dso.texKey];
+				
+				if (!texData) return;
+
+				if (dist < LOD_THRESHOLD && dso.sprite.userData.currentLOD === 'low' && texData.high) {
+					dso.sprite.material.map = texData.high;
+					dso.sprite.material.needsUpdate = true;
+					dso.sprite.userData.currentLOD = 'high';
+				} else if (dist >= LOD_THRESHOLD && dso.sprite.userData.currentLOD === 'high') {
+					dso.sprite.material.map = texData.low;
+					dso.sprite.material.needsUpdate = true;
+					dso.sprite.userData.currentLOD = 'low';
+				}
+			});
+			
 			
 			// === ADAPTIVE NEAR PLANE ===
 			// Se stiamo tracciando un oggetto, basa il near plane sulla distanza da esso
