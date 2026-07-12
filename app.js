@@ -27,7 +27,7 @@
 		// ============================================================
 		const AI = {
 		  url: 'http://localhost:11434',
-		  model: 'gemma4:e4b',
+		  model: 'gemma4:26b',
 		  enabled: false,      // flag globale: settato dal check iniziale
 		  checked: false,      // evita check multipli
 		  cache: new Map(),    // cache risposte (chiave = prompt)
@@ -2641,6 +2641,8 @@ async function refineStage(idx) {
       await refineStage(idx);
     } catch (e) {
       setStatus('errore'); setBody('Impossibile generare la tappa. Riprova più tardi.');
+	  el.startBtn.textContent = 'Riprova';
+	  el.startBtn.style.display = 'block';
       return;
     }
     setStatus('');
@@ -2707,18 +2709,23 @@ async function refineStage(idx) {
 
   // ============ AVVIO / RIPRESA / TOGGLE ============
 	async function startNewRun() {
+	  el.components.innerHTML = ''; 
 	  setStatus('genero missione…');
 	  setBody('Una catastrofe minaccia la Terra… preparo la fuga.');
 	  showInput(false);
+	  
 	  try {
 		_run = await generateRun();
 		_persist();
 		setBody(`🌍 ${_run.titolo}\n\n${_run.catastrofe}\n\n${_run.narrativaIniziale}`);
 		TTS.speak(`${_run.titolo}. ${_run.catastrofe} ${_run.narrativaIniziale}`);
+		el.startBtn.textContent = 'Inizia';
 		el.startBtn.style.display = 'block';
 	  } catch (e) {
 		setStatus('errore');
 		setBody('Generazione non riuscita. Verifica che Ollama sia attivo e riprova.');
+		el.startBtn.textContent = 'Riprova';
+		el.startBtn.style.display = 'block';
 	  }
 	}
 
