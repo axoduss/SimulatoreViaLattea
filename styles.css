@@ -638,5 +638,20 @@
 		  font-size: 12px; cursor: pointer; transition: all 0.2s; }
 		#game-submit:hover { background: var(--accent-glow); }
 		#game-submit:disabled { opacity: 0.4; cursor: default; }
+		.game-start-btn {
+			  display: block;
+			  width: 100%;
+			  margin-top: 14px;
+			  background: var(--accent-dim);
+			  border: 1px solid var(--border-hover);
+			  border-radius: 8px;
+			  padding: 10px 14px;
+			  color: var(--accent-bright);
+			  font-family: 'Inter', sans-serif;
+			  font-size: 12px;
+			  cursor: pointer;
+			  transition: all 0.2s;
+			}
+		.game-start-btn:hover { background: var(--accent-glow); }
 		
 		

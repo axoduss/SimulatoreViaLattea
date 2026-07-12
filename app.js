@@ -1158,6 +1158,12 @@
 		let observePhase = 'TRANSIT';               // 'TRANSIT' (camera ferma) | 'CHASE' (inseguimento)
 		let observeFixedPos = new THREE.Vector3();  // posizione fissa camera durante il transito
 		let chaseDist = 0;                          // distanza di inseguimento in fase CHASE
+		let obsCinePhase = 'APPROACH'; // 'APPROACH', 'LOCKON', 'SLINGSHOT', 'TRAIL'
+		let obsCineStartTime = 0;
+		let obsCineAnchorPos = new THREE.Vector3();
+		let obsCinePrevTargetPos = new THREE.Vector3();
+		let obsCineTransitionProgress = 0;
+		let obsCineSmoothVel = new THREE.Vector3(); // filtro passa-basso per tangente
 
 		function getSearchResults(query) {
 			if (!query || query.length === 0) return [];
@@ -1417,7 +1423,7 @@
 				periodEl.innerHTML = data.period + '<span class="info-data-unit">giorni</span>';
 				speedEl.innerHTML = data.speed + '<span class="info-data-unit">km/s</span>';
 				panel.classList.add('visible');
-				narrateObject(obj);
+				if (!(typeof Game !== 'undefined' && Game.isGameMode && Game.isGameMode())) { narrateObject(obj); }
 				
 			}
 		}
@@ -1501,6 +1507,12 @@
 				
 				observePhase = 'TRANSIT';
 				chaseDist = observeDist * 2;   // insegue da più lontano -> resta visibile il sistema
+				obsCinePhase = 'APPROACH';
+				obsCineStartTime = performance.now() / 1000;
+				obsCineAnchorPos.set(0, 0, 0); // verrà impostato al primo frame
+				obsCinePrevTargetPos.copy(targetPos);
+				obsCineTransitionProgress = 0;
+				obsCineSmoothVel.set(0, 0, 0);
 				
 				// Camera spostata "a sinistra" dell'orbita: sinistra = tangente × up
 			//	const leftDir = tangentDir.clone().cross(upDir).normalize();
@@ -1616,31 +1628,95 @@
 					}
 				}
 			} else if (trackingMode === 'observe') {
-				  // MODALITÀ CINEMATOGRAFICA (Transito e Inseguimento)
-				  const speed = isPlaying ? Math.max(1, speedMultiplier) : 1;
-				  const t = 1 - Math.pow(1 - OBSERVE_SMOOTH, delta * 60 * speed);
-				  const s = THREE.MathUtils.clamp(t, 0, 1);
-				  const distToPlanet = camera.position.distanceTo(targetPos);
-				  
-				  if (observePhase === 'TRANSIT') {
-					// FASE 1: camera FERMA nel punto di ripresa; segue solo lo SGUARDO.
-					// Il pianeta attraversa l'inquadratura (da un lato all'altro).
-					camera.position.lerp(observeFixedPos, s * 0.5); 
-					controls.target.lerp(targetPos, s);             
-					
-					// Quando il pianeta si è allontanato oltre soglia -> passa a CHASE
-					if (distToPlanet > chaseDist) {
-					  observePhase = 'CHASE';
+				let objectRadius = sunRadiusScene;
+				const planetObj = planets.find(p => p.name === trackingTarget.name);
+				const dwarfObj = dwarfPlanets.find(p => p.name === trackingTarget.name);
+				const satObj = satellites.find(s => s.name === trackingTarget.name);
+				if (planetObj) objectRadius = planetObj.realRadius;
+				else if (dwarfObj) objectRadius = dwarfObj.realRadius;
+				else if (satObj) objectRadius = satObj.realRadius;
+
+				const now = performance.now() / 1000;
+				const upDir = new THREE.Vector3(0, 1, 0);
+				const distToTarget = camera.position.distanceTo(targetPos);
+
+				// === CALCOLO TANGENTE SMORZATA ===
+				const rawVel = targetPos.clone().sub(obsCinePrevTargetPos);
+				obsCineSmoothVel.lerp(rawVel, delta * 4.0);
+				let tangentDir = obsCineSmoothVel.length() > 0.000001
+					? obsCineSmoothVel.clone().normalize()
+					: new THREE.Vector3(-targetPos.z, 0, targetPos.x).normalize();
+				obsCinePrevTargetPos.copy(targetPos);
+
+				// Inizializza anchor al primo frame di APPROACH
+				if (obsCinePhase === 'APPROACH' && obsCineAnchorPos.lengthSq() === 0) {
+					obsCineAnchorPos.copy(camera.position);
+				}
+
+				if (obsCinePhase === 'APPROACH') {
+					// FASE 1: Camera laterale, oggetto si avvicina. Camera quasi ferma.
+					camera.position.lerp(obsCineAnchorPos, delta * 2.0);
+					controls.target.lerp(targetPos, delta * 3.0);
+
+					if (distToTarget < objectRadius * 3.5 || (now - obsCineStartTime) > 3.0) {
+						obsCinePhase = 'LOCKON';
+						obsCineStartTime = now;
+						obsCineAnchorPos.copy(camera.position);
 					}
-				  } else { // CHASE
-					// FASE 2: insegue da lontano mantenendo distanza chaseDist,
-					// leggermente dall'alto per tenere in campo Sole e orbite.
-					const dir = camera.position.clone().sub(targetPos).normalize();
-					const desiredPos = targetPos.clone().add(dir.multiplyScalar(chaseDist * observeUserZoom));
-					desiredPos.y += chaseDist * 0.25;
-					camera.position.lerp(desiredPos, s);
-					controls.target.lerp(targetPos, s);
-				  }
+
+				} else if (obsCinePhase === 'LOCKON') {
+					// FASE 2: Camera ferma, ruota (pan) seguendo l'oggetto.
+					camera.position.lerp(obsCineAnchorPos, delta * 2.0);
+					controls.target.copy(targetPos);
+
+					if ((now - obsCineStartTime) > 3.0 || distToTarget > objectRadius * 5) {
+						obsCinePhase = 'SLINGSHOT';
+						obsCineStartTime = now;
+						obsCineTransitionProgress = 0;
+						obsCineAnchorPos.copy(camera.position);
+					}
+
+				} else if (obsCinePhase === 'SLINGSHOT') {
+					// FASE 3: Transizione. Camera si porta dietro l'oggetto.
+					obsCineTransitionProgress += delta * 0.8;
+					if (obsCineTransitionProgress > 1) obsCineTransitionProgress = 1;
+					const t = easeInOutCubic(obsCineTransitionProgress);
+
+					const trailDist = objectRadius * 4 * observeUserZoom;
+					const trailPos = targetPos.clone()
+						.sub(tangentDir.clone().multiplyScalar(trailDist))
+						.add(upDir.clone().multiplyScalar(objectRadius * 1.2));
+
+					camera.position.lerpVectors(obsCineAnchorPos, trailPos, t);
+					controls.target.copy(targetPos);
+
+					if (obsCineTransitionProgress >= 1) {
+						obsCinePhase = 'TRAIL';
+						obsCineStartTime = now;
+					}
+
+			} else if (obsCinePhase === 'TRAIL') {
+				// FASE 4: Inseguimento stabile + Crane Up.
+				const trailDist = objectRadius * 4 * observeUserZoom;
+				const desiredPos = targetPos.clone()
+					.sub(tangentDir.clone().multiplyScalar(trailDist))
+					.add(upDir.clone().multiplyScalar(objectRadius * 1.2));
+
+				// Crane Up: dopo 5 secondi sale e si allarga per mostrare il sistema
+				const trailTime = now - obsCineStartTime;
+				if (trailTime > 5.0) {
+					const craneT = Math.min((trailTime - 5.0) / 10.0, 1.0);
+					const craneEase = easeInOutCubic(craneT);
+					desiredPos.y += objectRadius * 3.0 * craneEase;
+					desiredPos.sub(tangentDir.clone().multiplyScalar(objectRadius * 2.0 * craneEase));
+				}
+
+				camera.position.lerp(desiredPos, delta * 1.5);
+				controls.target.copy(targetPos);
+			}
+				  
+				  
+				  
 			} else if (trackingMode === 'follow') {
 				// MODALITÀ FISSA (Camera si muove con l'oggetto, lo tiene fisso a schermo)
 				let objectRadius = sunRadiusScene;
@@ -2295,6 +2371,7 @@ const Game = (() => {
     el.inputRow   = document.getElementById('game-input-row');
     el.answer     = document.getElementById('game-answer');
     el.submit     = document.getElementById('game-submit');
+	el.startBtn   = document.getElementById('game-start-btn');
   }
   function setStatus(t) { el.status.textContent = t || ''; }
   function setBody(t) { el.body.textContent = t; }
@@ -2318,7 +2395,7 @@ const Game = (() => {
 
   // ============ CHIAMATA A: struttura base ============
   async function generateRun() {
-    const nTappe = 5 + Math.floor(Math.random() * 4); // 5..8 (rand JS, non AI)
+    const nTappe = 5 + Math.floor(Math.random() * 4);
     const nomi = catalogNames();
     const system =
       'Sei il generatore di un gioco escape-room spaziale. Rispondi SOLO con JSON valido, in ITALIANO. ' +
@@ -2369,40 +2446,92 @@ const Game = (() => {
   }
 
   // ============ CHIAMATA B: raffinamento singola tappa ============
-  async function refineStage(idx) {
-    const tappa = _run.tappe[idx];
-    if (tappa.raffinata && tappa._sfida) return; // già fatto (ripresa)
+async function refineStage(idx) {
+  const tappa = _run.tappe[idx];
+  if (tappa.raffinata && tappa._sfida) return; // già fatto (ripresa)
 
-    const system =
-      'Genera il contenuto di UNA tappa di un gioco escape-room spaziale. Rispondi SOLO con JSON valido, ' +
-      'in ITALIANO. La sfida deve essere risolvibile e avere una risposta corretta chiara. ' +
-      'Puoi usare dati astronomici reali del corpo celeste indicato.';
-    const prompt =
-      `Contesto missione: "${_run.titolo}" — ${_run.catastrofe}.\n` +
-      `Tappa ${tappa.ordine} sul corpo celeste: ${tappa.oggetto} (tipo: ${tappa.tipo}).\n` +
-      `Genera JSON:\n` +
-      `{"descrizioneAmbientazione":"2-3 frasi che calano il giocatore nella tappa",` +
-      `"sfida":{"tipo":"domanda|indovinello|enigma_logico|enigma_matematico",` +
-      `"testo":"la sfida","indizi":["indizio1","indizio2"],` +
-      `"rispostaAttesa":"soluzione di riferimento","criterio":"cosa rende corretta una risposta"},` +
-      `"componente":{"nome":"es. Cella a fusione","descrizione":"a cosa serve per l'astronave"}}`;
+  const MAX_RETRY = 3;
+  let q = null; // { descrizioneAmbientazione, testo }
+  let a = null; // { rispostaAttesa, risposteAccettate, certa, criterio }
 
-    const res = await AI.ask({ prompt, system, json: true, useCache: false, timeout: 120000 });
-    if (!res || !res.sfida || !res.sfida.testo) throw new Error('REFINE_INVALID');
+  // --- B1 + B2 con retry: domanda semplice + risposta CERTA ---
+  for (let attempt = 0; attempt < MAX_RETRY; attempt++) {
+    // B1: ambientazione + domanda (senza risposta, senza indizi)
+    const systemQ =
+      'Genera UNA domanda di quiz per una tappa escape-room spaziale. Rispondi SOLO con JSON valido, ' +
+      'in ITALIANO. La domanda deve essere di cultura generale astronomica MOLTO SEMPLICE, con risposta ' +
+      'UNICA, OGGETTIVA e CERTA (una data, un numero intero piccolo, un nome proprio o un superlativo). ' +
+      'VIETATI calcoli, stime, opinioni, grandezze fisiche misurate (raggio, massa, temperatura) e ' +
+      'domande che suggeriscono la risposta nel loro stesso testo.';
+    const promptQ =
+      `Missione: "${_run.titolo}". Tappa ${tappa.ordine} su ${tappa.oggetto} (tipo: ${tappa.tipo}).\n` +
+      `Genera SOLO ambientazione e domanda (niente risposta, niente indizi).\n` +
+      `Formato JSON: {"descrizioneAmbientazione":"2-3 frasi che calano il giocatore nella tappa",` +
+      `"testo":"la domanda"}`;
 
-    tappa.descrizione = res.descrizioneAmbientazione || '';
-    tappa._sfida = {
-      tipo: res.sfida.tipo || 'domanda',
-      testo: res.sfida.testo,
-      indizi: Array.isArray(res.sfida.indizi) ? res.sfida.indizi : [],
-      rispostaAttesa: res.sfida.rispostaAttesa || '',
-      criterio: res.sfida.criterio || '',
-    };
-    tappa.componenteNome = (res.componente && res.componente.nome) || 'Componente ignoto';
-    tappa.componenteDesc = (res.componente && res.componente.descrizione) || '';
-    tappa.raffinata = true;
-    _persist();
+    let qTry;
+    try {
+      qTry = await AI.ask({ prompt: promptQ, system: systemQ, json: true, useCache: false, timeout: 120000 });
+    } catch (_) { continue; }
+    if (!qTry || !qTry.testo || !qTry.testo.trim()) continue;
+
+    // B2: la domanda torna all'AI per la risposta canonica (fonte di verità)
+    const systemA =
+      'Ricevi una domanda di astronomia. Rispondi SOLO con JSON valido, in ITALIANO. Fornisci la ' +
+      'risposta canonica e le sue varianti accettabili. Se la domanda NON ha una risposta unica e ' +
+      'certa, è ambigua o richiede calcoli, imposta "certa": false.';
+    const promptA =
+      `Domanda: "${qTry.testo}".\n` +
+      `Formato JSON: {"rispostaAttesa":"forma canonica","risposteAccettate":["variante1","variante2"],` +
+      `"certa":true|false,"criterio":"la risposta coincide con una di risposteAccettate"}`;
+
+    let aTry;
+    try {
+      aTry = await AI.ask({ prompt: promptA, system: systemA, json: true, useCache: false, timeout: 90000 });
+    } catch (_) { continue; }
+
+    if (!aTry || aTry.certa !== true) continue;
+    if (!aTry.rispostaAttesa || !Array.isArray(aTry.risposteAccettate) || aTry.risposteAccettate.length === 0) continue;
+
+    q = qTry;
+    a = aTry;
+    break;
   }
+
+  // Nessun fallback: se non otteniamo una domanda certa, propaghiamo l'errore
+  // (renderCurrentStage lo gestisce già mostrando "Impossibile generare la tappa").
+  if (!q || !a) throw new Error('REFINE_NO_CERTAIN_QUESTION');
+
+  // --- B3: indizi + componente, coerenti con la risposta ormai fissata ---
+  const systemH =
+    'Ricevi una domanda astronomica e la sua risposta certa. Rispondi SOLO con JSON valido, in ITALIANO. ' +
+    'Genera 2 indizi che avvicinano gradualmente alla risposta SENZA rivelarla né contenerla ' +
+    'letteralmente, e un componente tematico per l\'astronave. Gli indizi devono essere coerenti con la risposta.';
+  const promptH =
+    `Contesto missione: "${_run.titolo}" — ${_run.catastrofe}.\n` +
+    `Tappa su ${tappa.oggetto}. Domanda: "${q.testo}". Risposta corretta: "${a.rispostaAttesa}".\n` +
+    `Formato JSON: {"indizi":["indizio1","indizio2"],` +
+    `"componente":{"nome":"es. Cella a fusione","descrizione":"a cosa serve per l'astronave"}}`;
+
+  const h = await AI.ask({ prompt: promptH, system: systemH, json: true, useCache: false, timeout: 120000 });
+  if (!h || !Array.isArray(h.indizi) || h.indizi.length === 0) throw new Error('REFINE_HINTS_INVALID');
+  if (!h.componente || !h.componente.nome) throw new Error('REFINE_COMPONENT_INVALID');
+
+  // --- composizione finale (stessa struttura del tuo originale + risposteAccettate) ---
+  tappa.descrizione = q.descrizioneAmbientazione || '';
+  tappa._sfida = {
+    tipo: 'domanda',
+    testo: q.testo,
+    indizi: h.indizi,
+    rispostaAttesa: a.rispostaAttesa,
+    risposteAccettate: a.risposteAccettate,
+    criterio: a.criterio || 'la risposta coincide con una di risposteAccettate',
+  };
+  tappa.componenteNome = h.componente.nome || 'Componente ignoto';
+  tappa.componenteDesc = h.componente.descrizione || '';
+  tappa.raffinata = true;
+  _persist();
+}
 
   // ============ GIUDICE AI: valuta la risposta ============
   async function judgeAnswer(idx, userAnswer) {
@@ -2414,13 +2543,27 @@ const Game = (() => {
       'Sei il giudice di un gioco escape-room. Valuta se la risposta dell\'utente è corretta, ' +
       'accettando sinonimi, maiuscole diverse e piccoli errori di battitura. Rispondi SOLO con JSON ' +
       'valido, in ITALIANO. Se la risposta è errata, fornisci UN indizio utile ma non la soluzione.';
-    const prompt =
+/*     const prompt =
       `Sfida: "${s.testo}".\n` +
       `Risposta attesa (riferimento): "${s.rispostaAttesa}".\n` +
       `Criterio di correttezza: "${s.criterio}".\n` +
       (preIndizio ? `Indizio disponibile da riusare se serve: "${preIndizio}".\n` : '') +
       `Risposta dell'utente: "${userAnswer}".\n` +
-      `JSON: {"corretta":true|false,"spiegazione":"breve","indizio":"nuovo indizio o null se corretta"}`;
+      `JSON: {"corretta":true|false,"spiegazione":"breve","indizio":"nuovo indizio o null se corretta"}`; */
+	  
+	  
+	  
+	  
+	 const prompt =
+	  `Sfida: "${s.testo}".\n` +
+	  `Risposta attesa (riferimento): "${s.rispostaAttesa}".\n` +
+	  (Array.isArray(s.risposteAccettate) && s.risposteAccettate.length
+		? `Risposte accettate equivalenti: ${s.risposteAccettate.map(r => `"${r}"`).join(', ')}.\n`
+		: '') +
+	  `Criterio di correttezza: "${s.criterio}".\n` +
+	  (preIndizio ? `Indizio disponibile da riusare se serve: "${preIndizio}".\n` : '') +
+	  `Risposta dell'utente: "${userAnswer}".\n` +
+	  `JSON: {"corretta":true|false,"spiegazione":"breve","indizio":"nuovo indizio o null se corretta"}`;
 
     const res = await AI.ask({ prompt, system, json: true, useCache: false, timeout: 90000 });
         if (!res) return { corretta: false, spiegazione: 'Nessuna risposta dal giudice.', indizio: preIndizio };
@@ -2456,6 +2599,7 @@ const Game = (() => {
     }
     setStatus('');
     setBody(`📍 ${tappa.oggetto}\n\n${tappa.descrizione}\n\n🧩 ${tappa._sfida.testo}`);
+	TTS.speak(`${tappa.oggetto}. ${tappa.descrizione} ${tappa._sfida.testo}`);
     showInput(true);
     el.answer.value = '';
     el.answer.focus();
@@ -2478,6 +2622,7 @@ const Game = (() => {
         _persist();
         renderComponents();
         setBody(`✅ ${verdict.spiegazione}\n\n🔧 Hai raccolto: ${tappa.componenteNome}\n${tappa.componenteDesc || ''}`);
+		TTS.speak(`${verdict.spiegazione} Hai raccolto: ${tappa.componenteNome}.`);
         showInput(false);
         // avanza
         if (idx + 1 >= _run.tappe.length) {
@@ -2507,6 +2652,7 @@ const Game = (() => {
     setStatus('🏁');
     const d = _run.destinazione;
     setBody(`🚀 Con tutti i componenti raccolti, l'astronave raggiunge ${d.oggetto}!\n\n${d.motivo}\n\nL'umanità è salva. Fine della fuga.`);
+	TTS.speak(`Con tutti i componenti raccolti, l'astronave raggiunge ${d.oggetto}! ${d.motivo} L'umanità è salva. Fine della fuga.`);
     showInput(false);
     renderComponents();
     navigateToObject(d.oggetto);
@@ -2514,26 +2660,30 @@ const Game = (() => {
   }
 
   // ============ AVVIO / RIPRESA / TOGGLE ============
-  async function startNewRun() {
-    setStatus('genero missione…');
-    setBody('Una catastrofe minaccia la Terra… preparo la fuga.');
-    showInput(false);
-    try {
-      _run = await generateRun();
-      _persist();
-      setBody(`🌍 ${_run.titolo}\n\n${_run.catastrofe}\n\n${_run.narrativaIniziale}`);
-      setTimeout(renderCurrentStage, 2600);
-    } catch (e) {
-      setStatus('errore');
-      setBody('Generazione non riuscita. Verifica che Ollama sia attivo e riprova.');
-    }
-  }
+	async function startNewRun() {
+	  setStatus('genero missione…');
+	  setBody('Una catastrofe minaccia la Terra… preparo la fuga.');
+	  showInput(false);
+	  try {
+		_run = await generateRun();
+		_persist();
+		setBody(`🌍 ${_run.titolo}\n\n${_run.catastrofe}\n\n${_run.narrativaIniziale}`);
+		TTS.speak(`${_run.titolo}. ${_run.catastrofe} ${_run.narrativaIniziale}`);
+		el.startBtn.style.display = 'block';
+	  } catch (e) {
+		setStatus('errore');
+		setBody('Generazione non riuscita. Verifica che Ollama sia attivo e riprova.');
+	  }
+	}
 
   async function enterGame() {
     if (!AI.enabled) { setBody('⚠ AI non disponibile: avvia Ollama per giocare.'); el.panel.classList.add('visible'); return; }
     _mode = 'game';
     el.toggle.classList.add('game-active');
     el.panel.classList.add('visible');
+	document.getElementById('ai-panel').classList.remove('visible');
+	if (narrationSignal) narrationSignal.abort();
+    TTS.stop();
     const saved = _load();
     if (saved && !saved.completata) {
       _run = saved;
@@ -2559,6 +2709,11 @@ const Game = (() => {
     el.toggle.addEventListener('click', toggleMode);
     el.submit.addEventListener('click', submitAnswer);
     el.answer.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitAnswer(); });
+	el.startBtn.addEventListener('click', () => {
+		el.startBtn.style.display = 'none';
+		TTS.stop(); // interrompe la lettura dell'intro se ancora in corso
+		renderCurrentStage();
+	});
   }
 
   // API pubblica MINIMALE (nessun dato sensibile esposto)
@@ -2567,11 +2722,7 @@ const Game = (() => {
 
 Game.init();
 		
-		
-		
-		
-		
-		
+	
 		AI.init();
 		animate();
 		
